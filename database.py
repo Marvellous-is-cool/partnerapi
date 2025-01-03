@@ -1,45 +1,132 @@
+from typing import Dict
 from bson import ObjectId
 import gridfs
 from pymongo import MongoClient
+from hashlib import sha256
 
 # MongoDB connection details
-MONGO_URI = "mongodb+srv://primidac:teststring123###@micodelivery.mqfic.mongodb.net/?retryWrites=true&w=majority&appName=micodelivery"  # Update with your MongoDB URI
+MONGO_URI = (
+    "mongodb+srv://primidac:teststring123###@micodelivery.mqfic.mongodb.net/"
+    "?retryWrites=true&w=majority&appName=micodelivery"
+)  # Update with your MongoDB URI
 DATABASE_NAME = "delivery_app_db"
+
 # Connect to MongoDB
 client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 riders_collection = db["riders"]
+users_collection = db["users"]
+delivery_collection = db['deliveries']
 
 fs = gridfs.GridFS(db)
 
-# Function to insert rider data and national ID into MongoDB
+
+# ================= Riders Functions =================
+
 def insert_rider(rider_data: dict, nationalid_file: bytes):
+    """
+    Insert rider data and national ID into MongoDB.
+    """
     rider_id = riders_collection.insert_one(rider_data).inserted_id
     nationalid_file_id = fs.put(nationalid_file, filename="nationalid.jpg")
     return str(rider_id), str(nationalid_file_id)
 
-# Function to ping the database to check connection
+
+def get_rider_by_email(email: str):
+    """
+    Get rider data by email.
+    """
+    return riders_collection.find_one({"email": email})
+
+
+def get_rider_by_id(rider_id: str):
+    """
+    Get rider data by ID.
+    """
+    return riders_collection.find_one({"_id": ObjectId(rider_id)})
+
+
+def get_all_riders():
+    """
+    Fetch all riders' data.
+    """
+    riders = list(riders_collection.find())
+    for rider in riders:
+        rider["_id"] = str(rider["_id"])
+    return riders
+
+
+# ================= Users Functions =================
+
+def insert_user(user_data: dict):
+    """
+    Insert user data into MongoDB with hashed password.
+    """
+    # Hash the password before storing
+    user_id = users_collection.insert_one(user_data).inserted_id
+    return str(user_id)
+
+
+def get_user_by_email(email: str):
+    """
+    Get user data by email.
+    """
+    return users_collection.find_one({"email": email})
+
+
+def get_user_by_id(user_id: str):
+    """
+    Get user data by ID.
+    """
+    return users_collection.find_one({"_id": ObjectId(user_id)})
+
+
+def get_all_users():
+    """
+    Fetch all users' data.
+    """
+    users = list(users_collection.find())
+    for user in users:
+        user["_id"] = str(user["_id"])
+    return users
+
+
+# ================= Utility Functions =================
+
 def ping_database():
+    """
+    Ping the database to check connection.
+    """
     try:
-        client.admin.command('ping')
+        client.admin.command("ping")
         return True
     except Exception as e:
         print(f"Error pinging database: {e}")
         return False
+    
+def insert_delivery(delivery_data: Dict) -> str:
+    """
+    Function to insert delivery data into MongoDB and return the delivery ID.
+    """
+    # Insert the delivery data into the MongoDB collection
+    result = delivery_collection.insert_one(delivery_data)
+    return str(result.inserted_id)
 
-# Function to get rider data by email
-def get_rider_by_email(email: str):
-    rider = riders_collection.find_one({"email": email})
-    return rider
+def get_all_deliveries():
+    """
+    Fetch all deliveries from the database.
+    """
+    deliveries = list(delivery_collection.find())  # Get all deliveries
+    for delivery in deliveries:
+        delivery["_id"] = str(delivery["_id"])  # Convert ObjectId to string
+    return deliveries
 
-# Function to get rider data by ID
-def get_rider_by_id(rider_id: str):
-    rider = riders_collection.find_one({"_id": ObjectId(rider_id)})
-    return rider
+def get_delivery_by_id(delivery_id: str):
+    """
+    Fetch a delivery by its ID from the database.
+    """
+    delivery = delivery_collection.find_one({"_id": ObjectId(delivery_id)})
 
-# Function to fetch all riders' data
-def get_all_riders():
-    riders = list(riders_collection.find())
-    for rider in riders:
-        rider["_id"] = str(rider["_id"])  # Convert ObjectId to string
-    return riders
+    if delivery:
+        delivery["_id"] = str(delivery["_id"])  # Convert ObjectId to string
+    return delivery

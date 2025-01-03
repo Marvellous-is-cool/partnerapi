@@ -1,3 +1,4 @@
+from typing import Dict, Optional
 from pydantic import BaseModel
 
 class RiderSignup(BaseModel):
@@ -14,7 +15,34 @@ class RiderSignup(BaseModel):
     homeaddressdetails: str
 
 
-# Schema for Rider Sign-In
 class RiderSignIn(BaseModel):
     email: str
-    password: str  # Assuming a simple password field
+    password: str  
+
+
+class UserSignup(BaseModel):
+    firstname: str
+    lastname: str
+    email: str
+    password: str
+    phone: str
+
+class DeliveryStatus(BaseModel):
+    riderid: Optional[str] = None
+    accepted: bool = False
+    rejected: bool = False
+    additional_data: Optional[Dict] = None
+
+class CreateDeliveryRequest(BaseModel):
+    user_id: str
+    price: int
+    distance: str
+    startpoint: str
+    endpoint: str
+    deliverytype: str  
+    transactiontype: str  
+    packagesize: str
+    status: Dict[str, bool] = {"accepted": False, "rejected": False}
+
+    class Config:
+        orm_mode = True
