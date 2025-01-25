@@ -13,6 +13,7 @@ class RiderSignup(BaseModel):
     accountname: str
     bvn: str
     homeaddressdetails: str
+    status: str
 
 
 class RiderSignIn(BaseModel):

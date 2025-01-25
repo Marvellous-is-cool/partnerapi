@@ -77,13 +77,14 @@ async def rider_signup(
         "lastname": lastname,
         "gender": gender,
         "email": email,
-        "password": hashed_password,  # Save the hashed password
+        "password": hashed_password,  
         "gurantorname": gurantorname,
         "gurantorphonenumber": gurantorphonenumber,
         "accountbank": accountbank,
         "accountname": accountname,
         "bvn": bvn,
         "homeaddressdetails": homeaddressdetails,
+        "status": "inactive"
     }
 
     # Read the uploaded National ID file as bytes
