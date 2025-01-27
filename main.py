@@ -61,7 +61,8 @@ async def rider_signup(
     gurantorphonenumber: str = Form(...),
     accountbank: str = Form(...),
     accountname: str = Form(...),
-    bvn: str = Form(...),
+    accountnumber: str = Form(...),
+    bvn: int = Form(...),
     homeaddressdetails: str = Form(...),
     nationalid: UploadFile = File(...),
 ):
@@ -82,6 +83,7 @@ async def rider_signup(
         "gurantorphonenumber": gurantorphonenumber,
         "accountbank": accountbank,
         "accountname": accountname,
+        "accountnumber": accountnumber,
         "bvn": bvn,
         "homeaddressdetails": homeaddressdetails,
         "status": "inactive"

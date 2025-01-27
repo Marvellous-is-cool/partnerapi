@@ -11,7 +11,8 @@ class RiderSignup(BaseModel):
     gurantorphonenumber: str
     accountbank: str
     accountname: str
-    bvn: str
+    accountnumber: int
+    bvn: int
     homeaddressdetails: str
     status: str
 
