@@ -49,7 +49,6 @@ def hash_password_sha256(password: str) -> str:
 
 
 # ================= Rider Endpoints =================
-
 @app.post("/ridersignup")
 async def rider_signup(
     firstname: str = Form(...),
@@ -57,30 +56,35 @@ async def rider_signup(
     gender: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    gurantorname: str = Form(...),
-    gurantorphonenumber: str = Form(...),
+    emergency_contact_name: str = Form(...),
+    emergency_contact_phone: str = Form(...),
     accountbank: str = Form(...),
     accountname: str = Form(...),
     accountnumber: str = Form(...),
-    bvn: int = Form(...),
+    bvn: str = Form(...),
     homeaddressdetails: str = Form(...),
     nationalid: UploadFile = File(...),
+    recent_facial_picture: UploadFile = File(...),
+    recent_utility_bill: UploadFile = File(...),
+    bike_registration_papers: UploadFile = File(...),
+    riders_license: UploadFile = File(...),
 ):
     """
-    Endpoint to handle rider signup with required details and image upload.
+    Endpoint to handle rider signup with required details and multiple file uploads.
     """
+
     # Hash the password using SHA-256
     hashed_password = hash_password_sha256(password)
 
-    # Prepare the rider data from form fields
+    # Prepare the rider data
     rider_data = {
         "firstname": firstname,
         "lastname": lastname,
         "gender": gender,
         "email": email,
-        "password": hashed_password,  
-        "gurantorname": gurantorname,
-        "gurantorphonenumber": gurantorphonenumber,
+        "password": hashed_password,
+        "emergency_contact_name": emergency_contact_name,
+        "emergency_contact_phone": emergency_contact_phone,
         "accountbank": accountbank,
         "accountname": accountname,
         "accountnumber": accountnumber,
@@ -89,19 +93,29 @@ async def rider_signup(
         "status": "inactive"
     }
 
-    # Read the uploaded National ID file as bytes
+    # Read the uploaded files
     nationalid_file = await nationalid.read()
+    facial_picture = await recent_facial_picture.read()
+    utility_bill = await recent_utility_bill.read()
+    bike_papers = await bike_registration_papers.read()
+    riders_license_file = await riders_license.read()
 
-    # Insert rider data into MongoDB and save the nationalid file in GridFS
-    rider_id, nationalid_file_id = insert_rider(rider_data, nationalid_file)
+    # Insert rider data into MongoDB and save the uploaded files in GridFS
+    rider_id, file_ids = insert_rider(
+        rider_data,
+        nationalid_file,
+        facial_picture,
+        utility_bill,
+        bike_papers,
+        riders_license_file,
+    )
 
     return {
         "status": "success",
         "message": "Rider signed up successfully!",
         "rider_id": rider_id,
-        "nationalid_file_id": nationalid_file_id,
+        "file_ids": file_ids
     }
-
 @app.post("/ridersignin")
 async def rider_signin(email: str = Form(...), password: str = Form(...)):
     """

@@ -23,13 +23,27 @@ fs = gridfs.GridFS(db)
 
 # ================= Riders Functions =================
 
-def insert_rider(rider_data: dict, nationalid_file: bytes):
+def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike_papers, riders_license_file, nin_voters_passport):
     """
-    Insert rider data and national ID into MongoDB.
+    Insert rider data into the database and store file uploads in GridFS.
     """
+    # Insert rider details
     rider_id = riders_collection.insert_one(rider_data).inserted_id
-    nationalid_file_id = fs.put(nationalid_file, filename="nationalid.jpg")
-    return str(rider_id), str(nationalid_file_id)
+
+    # Save files to GridFS
+    nationalid_id = fs.put(nationalid_file, filename="nationalid")
+    facial_picture_id = fs.put(facial_picture, filename="facial_picture")
+    utility_bill_id = fs.put(utility_bill, filename="utility_bill")
+    bike_papers_id = fs.put(bike_papers, filename="bike_registration_papers")
+    riders_license_id = fs.put(riders_license_file, filename="riders_license")
+
+    return str(rider_id), {
+        "nationalid": str(nationalid_id),
+        "facial_picture": str(facial_picture_id),
+        "utility_bill": str(utility_bill_id),
+        "bike_papers": str(bike_papers_id),
+        "riders_license": str(riders_license_id),
+    }
 
 
 def get_rider_by_email(email: str):
