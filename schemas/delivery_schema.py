@@ -6,6 +6,7 @@ class RiderSignup(BaseModel):
     lastname: str
     gender: str
     email: str
+    phone: str
     password: str
     gurantorname: str
     gurantorphonenumber: str
