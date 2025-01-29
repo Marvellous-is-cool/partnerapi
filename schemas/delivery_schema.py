@@ -15,6 +15,7 @@ class RiderSignup(BaseModel):
     accountnumber: int
     bvn: int
     homeaddressdetails: str
+    branding: str
     status: str
 
 

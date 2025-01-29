@@ -64,6 +64,7 @@ async def rider_signup(
     accountnumber: str = Form(...),
     bvn: str = Form(...),
     homeaddressdetails: str = Form(...),
+    branding: str = Form(...),
     nationalid: UploadFile = File(...),
     recent_facial_picture: UploadFile = File(...),
     recent_utility_bill: UploadFile = File(...),
@@ -92,6 +93,7 @@ async def rider_signup(
         "accountnumber": accountnumber,
         "bvn": bvn,
         "homeaddressdetails": homeaddressdetails,
+        "branding": branding,
         "status": "inactive"
     }
 
