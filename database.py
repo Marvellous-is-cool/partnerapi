@@ -23,7 +23,7 @@ fs = gridfs.GridFS(db)
 
 # ================= Riders Functions =================
 
-def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike_papers, riders_license_file, nin_voters_passport):
+def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike_papers, riders_license_file):
     """
     Insert rider data into the database and store file uploads in GridFS.
     """
