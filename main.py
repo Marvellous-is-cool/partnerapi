@@ -13,8 +13,18 @@ from database import (
     get_user_by_email,
     get_user_by_id,
     get_all_users,
+    update_rider_status,
+    update_rider_details_db,
+    update_user_details_db,
 )
 import hashlib
+from fastapi import BackgroundTasks
+import random
+import string
+from datetime import datetime, timedelta
+from utils.email_utils import send_reset_code_email  # Add this import at the top
+from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
+from typing import Optional
 
 app = FastAPI()
 
@@ -65,15 +75,24 @@ async def rider_signup(
     bvn: str = Form(...),
     homeaddressdetails: str = Form(...),
     branding: str = Form(...),
+    vehicle_type: str = Form(...),
     nationalid: UploadFile = File(...),
     recent_facial_picture: UploadFile = File(...),
     recent_utility_bill: UploadFile = File(...),
-    bike_registration_papers: UploadFile = File(...),
-    riders_license: UploadFile = File(...),
+    registration_papers: UploadFile = File(...),
+    license: UploadFile = File(...),
+    email_notification: bool = Form(True),
+    push_notification: bool = Form(True),
 ):
     """
     Endpoint to handle rider signup with required details and multiple file uploads.
     """
+    # Validate vehicle type
+    if vehicle_type.lower() not in ["bike", "car", "truck"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type. Must be 'bike', 'car', or 'truck'."
+        )
 
     # Hash the password using SHA-256
     hashed_password = hash_password_sha256(password)
@@ -94,6 +113,10 @@ async def rider_signup(
         "bvn": bvn,
         "homeaddressdetails": homeaddressdetails,
         "branding": branding,
+        "vehicle_type": vehicle_type.lower(),
+        "email_notification": email_notification,
+        "push_notification": push_notification,
+        "earnings": 0,
         "status": "inactive"
     }
 
@@ -101,8 +124,8 @@ async def rider_signup(
     nationalid_file = await nationalid.read()
     facial_picture = await recent_facial_picture.read()
     utility_bill = await recent_utility_bill.read()
-    bike_papers = await bike_registration_papers.read()
-    riders_license_file = await riders_license.read()
+    registration_papers_file = await registration_papers.read()
+    license_file = await license.read()
 
     # Insert rider data into MongoDB and save the uploaded files in GridFS
     rider_id, file_ids = insert_rider(
@@ -110,8 +133,8 @@ async def rider_signup(
         nationalid_file,
         facial_picture,
         utility_bill,
-        bike_papers,
-        riders_license_file,
+        registration_papers_file,
+        license_file,
     )
 
     return {
@@ -176,6 +199,8 @@ async def user_signup(
     email: str = Form(...),
     password: str = Form(...),
     phone: str = Form(...),
+    email_notification: bool = Form(True),
+    push_notification: bool = Form(True),
 ):
     """
     Endpoint to handle user signup.
@@ -197,6 +222,8 @@ async def user_signup(
         "email": email,
         "password": hashed_password,  
         "phone": phone,
+        "email_notification": email_notification,
+        "push_notification": push_notification,
     }
 
     # Insert user into the database
@@ -256,40 +283,6 @@ def fetch_all_users():
     return {"status": "success", "users": users}
 
 
-@app.post("/createdelivery")
-async def create_delivery(request: CreateDeliveryRequest):
-    """
-    Endpoint to create a new delivery request.
-    The status will be an object with default empty data (can be updated later).
-    """
-    # Validate deliverytype and transactiontype
-    if request.deliverytype not in ["express", "standard"]:
-        raise HTTPException(status_code=400, detail="Invalid delivery type. Choose 'express' or 'standard'.")
-    
-    if request.transactiontype not in ["cash", "online"]:
-        raise HTTPException(status_code=400, detail="Invalid transaction type. Choose 'cash' or 'online'.")
-    
-    # Prepare the delivery data to insert into the database
-    delivery_data = {
-        "user_id": request.user_id,
-        "price": request.price,
-        "distance": request.distance,
-        "startpoint": request.startpoint,
-        "endpoint": request.endpoint,
-        "deliverytype": request.deliverytype,
-        "transactiontype": request.transactiontype,
-        "packagesize": request.packagesize,
-        "status": request.status.dict()  # Store status as a dictionary
-    }
-    
-    # Insert the delivery data into the database
-    delivery_id = insert_delivery(delivery_data)
-    
-    return {
-        "status": "success",
-        "message": "Delivery created successfully!",
-        "delivery_id": delivery_id
-    }
 
 @app.get("/deliveries")
 def fetch_all_deliveries():
@@ -315,3 +308,411 @@ def fetch_delivery_by_id(delivery_id: str):
         raise HTTPException(status_code=404, detail="Delivery not found")
 
     return {"status": "success", "delivery": delivery}
+
+
+@app.put("/riders/{rider_id}/activate")
+async def activate_rider(rider_id: str):
+    """
+    Endpoint to activate a rider by changing their status from 'inactive' to 'active'.
+    """
+    # Get the rider first
+    rider = get_rider_by_id(rider_id)
+    
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    if rider["status"] == "active":
+        raise HTTPException(status_code=400, detail="Rider is already active")
+    
+    # Update rider status to active
+    success = update_rider_status(rider_id, "active")
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update rider status")
+    
+    return {
+        "status": "success",
+        "message": "Rider activated successfully",
+        "rider_id": rider_id
+    }
+
+
+@app.put("/riders/{rider_id}/update")
+async def update_rider_details(
+    rider_id: str,
+    *,  # Force keyword arguments for all following parameters
+    firstname: Optional[str] = None,
+    lastname: Optional[str] = None,
+    phone: Optional[str] = None,
+    emergency_contact_name: Optional[str] = None,
+    emergency_contact_phone: Optional[str] = None,
+    accountbank: Optional[str] = None,
+    accountname: Optional[str] = None,
+    accountnumber: Optional[str] = None,
+    homeaddressdetails: Optional[str] = None,
+    email_notification: Optional[bool] = None,
+    push_notification: Optional[bool] = None,
+):
+    """
+    Endpoint to update rider's details.
+    """
+    # Get the rider first
+    rider = get_rider_by_id(rider_id)
+    
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Prepare update data (only include fields that are provided)
+    update_data = {}
+    if firstname: update_data["firstname"] = firstname
+    if lastname: update_data["lastname"] = lastname
+    if phone: update_data["phone"] = phone
+    if emergency_contact_name: update_data["emergency_contact_name"] = emergency_contact_name
+    if emergency_contact_phone: update_data["emergency_contact_phone"] = emergency_contact_phone
+    if accountbank: update_data["accountbank"] = accountbank
+    if accountname: update_data["accountname"] = accountname
+    if accountnumber: update_data["accountnumber"] = accountnumber
+    if homeaddressdetails: update_data["homeaddressdetails"] = homeaddressdetails
+    if email_notification is not None: update_data["email_notification"] = email_notification
+    if push_notification is not None: update_data["push_notification"] = push_notification
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data provided for update")
+    
+    # Update rider details
+    success = update_rider_details_db(rider_id, update_data)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update rider details")
+    
+    return {
+        "status": "success",
+        "message": "Rider details updated successfully",
+        "rider_id": rider_id
+    }
+
+@app.put("/users/{user_id}/update")
+async def update_user_details(
+    user_id: str,
+    firstname: str = Form(None),
+    lastname: str = Form(None),
+    phone: str = Form(None),
+    email_notification: bool = Form(None),
+    push_notification: bool = Form(None),
+):
+    """
+    Endpoint to update user's details.
+    """
+    # Get the user first
+    user = get_user_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prepare update data (only include fields that are provided)
+    update_data = {}
+    if firstname: update_data["firstname"] = firstname
+    if lastname: update_data["lastname"] = lastname
+    if phone: update_data["phone"] = phone
+    if email_notification is not None: update_data["email_notification"] = email_notification
+    if push_notification is not None: update_data["push_notification"] = push_notification
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data provided for update")
+    
+    # Update user details
+    success = update_user_details_db(user_id, update_data)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update user details")
+    
+    return {
+        "status": "success",
+        "message": "User details updated successfully",
+        "user_id": user_id
+    }
+
+
+@app.put("/auth/change-password/{user_type}/{user_id}")
+async def change_password(
+    user_type: str,
+    user_id: str,
+    old_password: str = Form(...),
+    new_password: str = Form(...),
+):
+    """
+    Endpoint to change password for both riders and users.
+    Requires verification of old password before changing.
+    """
+    if user_type not in ["rider", "user"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user type. Must be 'rider' or 'user'."
+        )
+    
+    # Get the user/rider based on type
+    if user_type == "rider":
+        user_data = get_rider_by_id(user_id)
+        update_function = update_rider_details_db
+    else:
+        user_data = get_user_by_id(user_id)
+        update_function = update_user_details_db
+    
+    if not user_data:
+        raise HTTPException(status_code=404, detail=f"{user_type.capitalize()} not found")
+    
+    # Verify old password
+    hashed_old_password = hash_password_sha256(old_password)
+    if user_data["password"] != hashed_old_password:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Hash and update new password
+    hashed_new_password = hash_password_sha256(new_password)
+    success = update_function(user_id, {"password": hashed_new_password})
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update password")
+    
+    return {
+        "status": "success",
+        "message": "Password updated successfully"
+    }
+
+
+# Function to generate random reset code
+def generate_reset_code():
+    """Generate a 6-digit reset code"""
+    return ''.join(random.choices(string.digits, k=6))
+
+@app.post("/auth/forgot-password/{user_type}")
+async def forgot_password(
+    user_type: str,
+    *,
+    email: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Endpoint to handle forgot password requests.
+    Generates a reset code and sends it to user's email.
+    """
+    if user_type not in ["rider", "user"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user type. Must be 'rider' or 'user'."
+        )
+    
+    # Get user data based on type
+    if user_type == "rider":
+        user_data = get_rider_by_email(email)
+        update_function = update_rider_details_db
+    else:
+        user_data = get_user_by_email(email)
+        update_function = update_user_details_db
+    
+    if not user_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {user_type} found with this email"
+        )
+    
+    # Generate and store reset code
+    reset_code = generate_reset_code()
+    hashed_reset_code = hash_password_sha256(reset_code)
+    
+    # Store the reset code and its expiration
+    success = update_function(
+        str(user_data["_id"]),
+        {
+            "reset_code": hashed_reset_code,
+            "reset_code_expiry": datetime.utcnow() + timedelta(minutes=15)
+        }
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process password reset request"
+        )
+    
+    # Send email and check if it was successful
+    email_sent = send_reset_code_email(email, reset_code, user_type)
+    
+    if not email_sent:
+        # Rollback the reset code update
+        update_function(
+            str(user_data["_id"]),
+            {
+                "reset_code": None,
+                "reset_code_expiry": None
+            }
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send reset code email. Please try again later."
+        )
+    
+    return {
+        "status": "success",
+        "message": "Password reset code has been sent to your email"
+    }
+
+@app.post("/auth/reset-password/{user_type}")
+async def reset_password(
+    user_type: str,
+    email: str = Form(...),
+    reset_code: str = Form(...),
+    new_password: str = Form(...)
+):
+    """
+    Endpoint to reset password using the reset code.
+    """
+    if user_type not in ["rider", "user"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user type. Must be 'rider' or 'user'."
+        )
+    
+    # Get user data based on type
+    if user_type == "rider":
+        user_data = get_rider_by_email(email)
+        update_function = update_rider_details_db
+    else:
+        user_data = get_user_by_email(email)
+        update_function = update_user_details_db
+    
+    if not user_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {user_type} found with this email"
+        )
+    
+    # Verify reset code and its expiration
+    if not user_data.get("reset_code"):
+        raise HTTPException(
+            status_code=400,
+            detail="No reset code was requested"
+        )
+    
+    if datetime.utcnow() > user_data.get("reset_code_expiry"):
+        raise HTTPException(
+            status_code=400,
+            detail="Reset code has expired"
+        )
+    
+    hashed_reset_code = hash_password_sha256(reset_code)
+    if user_data["reset_code"] != hashed_reset_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid reset code"
+        )
+    
+    # Update password and remove reset code data
+    hashed_password = hash_password_sha256(new_password)
+    success = update_function(
+        str(user_data["_id"]),
+        {
+            "password": hashed_password,
+            "reset_code": None,
+            "reset_code_expiry": None
+        }
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to reset password"
+        )
+    
+    return {
+        "status": "success",
+        "message": "Password has been reset successfully"
+    }
+
+@app.post("/delivery/bike")
+async def create_bike_delivery(request: BikeDeliveryRequest):
+    """
+    Endpoint to create a new bike delivery request.
+    """
+    # Validate vehicle type
+    if request.vehicletype.lower() != "bike":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type. Must be 'bike'."
+        )
+    
+    # Validate transaction type
+    if request.transactiontype.lower() not in ["cash", "online"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid transaction type. Choose 'cash' or 'online'."
+        )
+    
+    # Validate delivery speed
+    if request.deliveryspeed.lower() not in ["express", "standard"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid delivery speed. Choose 'express' or 'standard'."
+        )
+    
+    # Prepare the delivery data
+    delivery_data = {
+        "user_id": request.user_id,
+        "price": request.price,
+        "distance": request.distance,
+        "startpoint": request.startpoint,
+        "endpoint": request.endpoint,
+        "vehicletype": request.vehicletype.lower(),
+        "transactiontype": request.transactiontype.lower(),
+        "packagesize": request.packagesize,
+        "deliveryspeed": request.deliveryspeed.lower(),
+        "status": request.status.dict()
+    }
+    
+    # Insert the delivery data into the database
+    delivery_id = insert_delivery(delivery_data)
+    
+    return {
+        "status": "success",
+        "message": "Bike delivery created successfully!",
+        "delivery_id": delivery_id
+    }
+
+@app.post("/delivery/car")
+async def create_car_delivery(request: CarDeliveryRequest):
+    """
+    Endpoint to create a new car delivery request.
+    """
+    # Validate vehicle type
+    if request.vehicletype.lower() != "car":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type. Must be 'car'."
+        )
+    
+    # Validate transaction type
+    if request.transactiontype.lower() not in ["cash", "online"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid transaction type. Choose 'cash' or 'online'."
+        )
+    
+    # Prepare the delivery data
+    delivery_data = {
+        "user_id": request.user_id,
+        "price": request.price,
+        "distance": request.distance,
+        "startpoint": request.startpoint,
+        "endpoint": request.endpoint,
+        "vehicletype": request.vehicletype.lower(),
+        "transactiontype": request.transactiontype.lower(),
+        "status": request.status.dict()
+    }
+    
+    # Insert the delivery data into the database
+    delivery_id = insert_delivery(delivery_data)
+    
+    return {
+        "status": "success",
+        "message": "Car delivery created successfully!",
+        "delivery_id": delivery_id
+    }

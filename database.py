@@ -144,3 +144,50 @@ def get_delivery_by_id(delivery_id: str):
     if delivery:
         delivery["_id"] = str(delivery["_id"])  # Convert ObjectId to string
     return delivery
+
+
+def update_rider_status(rider_id: str, new_status: str) -> bool:
+    """
+    Update rider's status in the database.
+    Returns True if update was successful, False otherwise.
+    """
+    try:
+        result = riders_collection.update_one(
+            {"_id": ObjectId(rider_id)},
+            {"$set": {"status": new_status}}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating rider status: {e}")
+        return False
+
+
+def update_rider_details_db(rider_id: str, update_data: dict) -> bool:
+    """
+    Update rider's details in the database.
+    Returns True if update was successful, False otherwise.
+    """
+    try:
+        result = riders_collection.update_one(
+            {"_id": ObjectId(rider_id)},
+            {"$set": update_data}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating rider details: {e}")
+        return False
+
+def update_user_details_db(user_id: str, update_data: dict) -> bool:
+    """
+    Update user's details in the database.
+    Returns True if update was successful, False otherwise.
+    """
+    try:
+        result = users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": update_data}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating user details: {e}")
+        return False
