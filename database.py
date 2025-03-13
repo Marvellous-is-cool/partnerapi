@@ -29,23 +29,29 @@ def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike
     """
     Insert rider data into the database and store file uploads in GridFS.
     """
-    # Insert rider details
-    rider_id = riders_collection.insert_one(rider_data).inserted_id
+    # Save files to GridFS first
+    nationalid_id = fs.put(nationalid_file, filename="nationalid", content_type="image/jpeg")
+    facial_picture_id = fs.put(facial_picture, filename="facial_picture", content_type="image/jpeg")
+    utility_bill_id = fs.put(utility_bill, filename="utility_bill", content_type="image/jpeg")
+    bike_papers_id = fs.put(bike_papers, filename="bike_registration_papers", content_type="image/jpeg")
+    riders_license_id = fs.put(riders_license_file, filename="riders_license", content_type="image/jpeg")
 
-    # Save files to GridFS
-    nationalid_id = fs.put(nationalid_file, filename="nationalid")
-    facial_picture_id = fs.put(facial_picture, filename="facial_picture")
-    utility_bill_id = fs.put(utility_bill, filename="utility_bill")
-    bike_papers_id = fs.put(bike_papers, filename="bike_registration_papers")
-    riders_license_id = fs.put(riders_license_file, filename="riders_license")
-
-    return str(rider_id), {
+    # Add file_ids to rider_data
+    rider_data["file_ids"] = {
         "nationalid": str(nationalid_id),
         "facial_picture": str(facial_picture_id),
         "utility_bill": str(utility_bill_id),
         "bike_papers": str(bike_papers_id),
         "riders_license": str(riders_license_id),
     }
+
+    # Set the facial_picture_url directly
+    rider_data["facial_picture_url"] = f"https://deliveryapi-plum.vercel.app/files/{str(facial_picture_id)}"
+
+    # Insert rider details with file_ids included
+    rider_id = riders_collection.insert_one(rider_data).inserted_id
+
+    return str(rider_id), rider_data["file_ids"]
 
 
 def get_rider_by_email(email: str):

@@ -746,11 +746,19 @@ async def get_file(file_id: str):
     """
     Endpoint to retrieve files stored in GridFS.
     """
-    file_data = get_file_by_id(file_id)
-    if not file_data:
+    try:
+        file_data = get_file_by_id(file_id)
+        if not file_data:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return StreamingResponse(
+            file_data,
+            media_type="image/jpeg",
+            headers={"Content-Disposition": "inline"}
+        )
+    except Exception as e:
+        print(f"Error retrieving file: {e}")
         raise HTTPException(status_code=404, detail="File not found")
-    
-    return StreamingResponse(file_data, media_type="image/*")
 
 
 class ChatMessage(BaseModel):
