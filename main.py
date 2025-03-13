@@ -29,6 +29,7 @@ from fastapi.responses import StreamingResponse
 from database import get_file_by_id  # Add this to your database imports
 from typing import List
 from pydantic import BaseModel
+from fastapi.responses import Response
 
 app = FastAPI()
 
@@ -751,10 +752,15 @@ async def get_file(file_id: str):
         if not file_data:
             raise HTTPException(status_code=404, detail="File not found")
         
-        return StreamingResponse(
-            file_data,
+        # Return the file data as a response
+        return Response(
+            content=file_data,
             media_type="image/jpeg",
-            headers={"Content-Disposition": "inline"}
+            headers={
+                "Content-Disposition": "inline",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600"
+            }
         )
     except Exception as e:
         print(f"Error retrieving file: {e}")

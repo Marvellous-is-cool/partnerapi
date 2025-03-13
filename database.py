@@ -206,11 +206,10 @@ def get_file_by_id(file_id):
     Retrieve a file from GridFS by its ID.
     """
     try:
-        fs = GridFS(db)
         file_id_obj = ObjectId(file_id)
         if fs.exists({"_id": file_id_obj}):
             grid_out = fs.get(file_id_obj)
-            return grid_out
+            return grid_out.read()  # Return the file data directly
         return None
     except Exception as e:
         print(f"Error retrieving file: {e}")
