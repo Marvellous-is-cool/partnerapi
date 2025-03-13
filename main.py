@@ -121,7 +121,8 @@ async def rider_signup(
         "email_notification": email_notification,
         "push_notification": push_notification,
         "earnings": 0,
-        "status": "inactive"
+        "status": "inactive",
+        "date_joined": datetime.now()
     }
 
     # Read the uploaded files
@@ -236,6 +237,7 @@ async def user_signup(
         "phone": phone,
         "email_notification": email_notification,
         "push_notification": push_notification,
+        "date_joined": datetime.now()
     }
 
     # Insert user into the database
