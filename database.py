@@ -1,8 +1,7 @@
 from typing import Dict
 from bson import ObjectId
-import gridfs
+from gridfs import GridFS
 from pymongo import MongoClient
-from hashlib import sha256
 
 # MongoDB connection details
 MONGO_URI = (
@@ -206,11 +205,18 @@ def get_file_by_id(file_id):
     Retrieve a file from GridFS by its ID.
     """
     try:
+        # Convert string ID to ObjectId
         file_id_obj = ObjectId(file_id)
-        if fs.exists({"_id": file_id_obj}):
-            grid_out = fs.get(file_id_obj)
-            return grid_out.read()  # Return the file data directly
-        return None
+        
+        # Get all chunks for this file
+        chunks = list(db.fs.chunks.find({'files_id': file_id_obj}).sort('n', 1))
+        if not chunks:
+            return None
+            
+        # Concatenate all binary chunks
+        binary_data = b''.join(chunk['data'] for chunk in chunks)
+        return binary_data
+        
     except Exception as e:
         print(f"Error retrieving file: {e}")
         return None

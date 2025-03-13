@@ -748,18 +748,18 @@ async def get_file(file_id: str):
     Endpoint to retrieve files stored in GridFS.
     """
     try:
-        file_data = get_file_by_id(file_id)
-        if not file_data:
+        binary_data = get_file_by_id(file_id)
+        if not binary_data:
             raise HTTPException(status_code=404, detail="File not found")
         
-        # Return the file data as a response
         return Response(
-            content=file_data,
+            content=binary_data,
             media_type="image/jpeg",
             headers={
                 "Content-Disposition": "inline",
                 "Accept-Ranges": "bytes",
-                "Cache-Control": "public, max-age=3600"
+                "Cache-Control": "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*"
             }
         )
     except Exception as e:
