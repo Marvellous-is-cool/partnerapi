@@ -25,6 +25,8 @@ from datetime import datetime, timedelta
 from utils.email_utils import send_reset_code_email  # Add this import at the top
 from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
+from fastapi.responses import StreamingResponse
+from database import get_file_by_id  # Add this to your database imports
 
 app = FastAPI()
 
@@ -143,6 +145,8 @@ async def rider_signup(
         "rider_id": rider_id,
         "file_ids": file_ids
     }
+
+
 @app.post("/ridersignin")
 async def rider_signin(email: str = Form(...), password: str = Form(...)):
     """
@@ -176,6 +180,12 @@ def fetch_rider_by_id(rider_id: str):
     if rider:
         # Convert ObjectId to string for serialization
         rider["_id"] = str(rider["_id"])
+        
+        # Add facial picture URL if file_ids exist
+        if "file_ids" in rider and rider["file_ids"].get("recent_facial_picture"):
+            facial_pic_id = rider["file_ids"]["recent_facial_picture"]
+            rider["facial_picture_url"] = f"https://deliveryapi-plum.vercel.app/files/{facial_pic_id}"
+        
         return {"status": "success", "rider": rider}
     else:
         raise HTTPException(status_code=404, detail="Rider not found")
@@ -716,3 +726,15 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "message": "Car delivery created successfully!",
         "delivery_id": delivery_id
     }
+
+
+@app.get("/files/{file_id}")
+async def get_file(file_id: str):
+    """
+    Endpoint to retrieve files stored in GridFS.
+    """
+    file_data = get_file_by_id(file_id)
+    if not file_data:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return StreamingResponse(file_data, media_type="image/*")
