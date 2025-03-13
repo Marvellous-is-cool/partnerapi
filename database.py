@@ -1,25 +1,19 @@
 from typing import Dict
-from bson import ObjectId
-from gridfs import GridFS
 from pymongo import MongoClient
+import gridfs  # Add this import
+from bson import ObjectId
+from datetime import datetime
 
-# MongoDB connection details
-MONGO_URI = (
-    "mongodb+srv://primidac:teststring123###@micodelivery.mqfic.mongodb.net/"
-    "?retryWrites=true&w=majority&appName=micodelivery"
-)  # Update with your MongoDB URI
-DATABASE_NAME = "delivery_app_db"
-
-# Connect to MongoDB
-client = MongoClient(MONGO_URI)
-db = client[DATABASE_NAME]
-riders_collection = db["riders"]
-users_collection = db["users"]
-delivery_collection = db['deliveries']
-chat_collection = db['chats']
-
-
+# MongoDB connection setup
+client = MongoClient("mongodb+srv://...")  # your connection string
+db = client.deliveryapp
 fs = gridfs.GridFS(db)
+
+# Collections
+riders_collection = db.riders
+users_collection = db.users
+deliveries_collection = db.deliveries
+chat_collection = db['chats']
 
 
 # ================= Riders Functions =================
