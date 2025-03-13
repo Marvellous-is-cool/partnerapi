@@ -122,7 +122,8 @@ async def rider_signup(
         "push_notification": push_notification,
         "earnings": 0,
         "status": "inactive",
-        "date_joined": datetime.now()
+        "date_joined": datetime.now(),
+        "facial_picture_url": None  # This will be updated after file upload
     }
 
     # Read the uploaded files
@@ -142,11 +143,19 @@ async def rider_signup(
         license_file,
     )
 
+    # Update the facial_picture_url
+    facial_pic_id = file_ids.get("facial_picture")
+    if facial_pic_id:
+        facial_picture_url = f"https://deliveryapi-plum.vercel.app/files/{facial_pic_id}"
+        update_rider_details_db(rider_id, {"facial_picture_url": facial_picture_url})
+        rider_data["facial_picture_url"] = facial_picture_url
+
     return {
         "status": "success",
         "message": "Rider signed up successfully!",
         "rider_id": rider_id,
-        "file_ids": file_ids
+        "file_ids": file_ids,
+        "facial_picture_url": rider_data["facial_picture_url"]
     }
 
 
