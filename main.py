@@ -27,6 +27,8 @@ from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
 from database import get_file_by_id  # Add this to your database imports
+from typing import List
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -738,3 +740,74 @@ async def get_file(file_id: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     return StreamingResponse(file_data, media_type="image/*")
+
+
+class ChatMessage(BaseModel):
+    message: str
+
+@app.post("/chat/{delivery_id}/{sender_id}/{receiver_id}")
+async def send_message(
+    delivery_id: str,
+    sender_id: str,
+    receiver_id: str,
+    message: ChatMessage
+):
+    """
+    Send a chat message between user and rider.
+    """
+    # Verify that both sender and receiver exist
+    sender = get_user_by_id(sender_id) or get_rider_by_id(sender_id)
+    receiver = get_user_by_id(receiver_id) or get_rider_by_id(receiver_id)
+    
+    if not sender or not receiver:
+        raise HTTPException(status_code=404, detail="Sender or receiver not found")
+    
+    # Verify that the delivery exists
+    delivery = get_delivery_by_id(delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    # Create the chat message
+    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id)
+    
+    return {
+        "status": "success",
+        "message": "Message sent successfully",
+        "chat_id": chat_id
+    }
+
+@app.get("/chat/{delivery_id}")
+async def get_messages(delivery_id: str):
+    """
+    Get all chat messages for a specific delivery.
+    """
+    # Verify that the delivery exists
+    delivery = get_delivery_by_id(delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    # Get chat history
+    messages = get_chat_history(delivery_id)
+    
+    return {
+        "status": "success",
+        "messages": messages
+    }
+
+@app.put("/chat/{delivery_id}/{receiver_id}/mark-read")
+async def mark_read(delivery_id: str, receiver_id: str):
+    """
+    Mark all messages as read for a specific delivery and receiver.
+    """
+    success = mark_messages_as_read(receiver_id, delivery_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to mark messages as read"
+        )
+    
+    return {
+        "status": "success",
+        "message": "Messages marked as read"
+    }

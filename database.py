@@ -17,6 +17,8 @@ db = client[DATABASE_NAME]
 riders_collection = db["riders"]
 users_collection = db["users"]
 delivery_collection = db['deliveries']
+chat_collection = db['chats']
+
 
 fs = gridfs.GridFS(db)
 
@@ -207,3 +209,43 @@ def get_file_by_id(file_id):
     except Exception as e:
         print(f"Error retrieving file: {e}")
         return None
+
+
+def create_chat(sender_id: str, receiver_id: str, message: str, delivery_id: str):
+    """
+    Create a new chat message.
+    """
+    chat_data = {
+        "sender_id": sender_id,
+        "receiver_id": receiver_id,
+        "message": message,
+        "delivery_id": delivery_id,
+        "timestamp": datetime.utcnow(),
+        "read": False
+    }
+    result = chat_collection.insert_one(chat_data)
+    return str(result.inserted_id)
+
+def get_chat_history(delivery_id: str):
+    """
+    Get chat history for a specific delivery.
+    """
+    chats = list(chat_collection.find({"delivery_id": delivery_id}).sort("timestamp", 1))
+    for chat in chats:
+        chat["_id"] = str(chat["_id"])
+        chat["timestamp"] = chat["timestamp"].isoformat()
+    return chats
+
+def mark_messages_as_read(receiver_id: str, delivery_id: str):
+    """
+    Mark all messages as read for a specific receiver and delivery.
+    """
+    result = chat_collection.update_many(
+        {
+            "receiver_id": receiver_id,
+            "delivery_id": delivery_id,
+            "read": False
+        },
+        {"$set": {"read": True}}
+    )
+    return result.modified_count > 0
