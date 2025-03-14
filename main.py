@@ -933,6 +933,29 @@ async def update_delivery_status(
                     "timestamp": datetime.utcnow()
                 }
             }
+            
+        elif action == "complete":
+            # Only the assigned rider can complete the delivery
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the assigned rider can complete this delivery"
+                )
+            
+            # Check if delivery is in the correct state to be completed
+            if delivery.get("status", {}).get("current") != "ongoing":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only ongoing deliveries can be completed"
+                )
+            
+            # Update the delivery status to completed
+            update_data = {
+                "status": {
+                    "current": "completed",
+                    "timestamp": datetime.utcnow()
+                }
+            }
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No updates required")

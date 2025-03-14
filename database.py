@@ -225,16 +225,29 @@ def update_delivery(delivery_id, update_data):
         
         # Handle the status update properly
         if "status" in update_data:
-            result = delivery_collection.update_one(
-                {"_id": delivery_id_obj},
-                {
-                    "$set": {
-                        "rider_id": update_data["rider_id"],
-                        "status": update_data["status"],
-                        "last_updated": datetime.utcnow()
+            # Check if rider_id is in update_data
+            if "rider_id" in update_data:
+                result = delivery_collection.update_one(
+                    {"_id": delivery_id_obj},
+                    {
+                        "$set": {
+                            "rider_id": update_data["rider_id"],
+                            "status": update_data["status"],
+                            "last_updated": datetime.utcnow()
+                        }
                     }
-                }
-            )
+                )
+            else:
+                # Just update the status without changing rider_id
+                result = delivery_collection.update_one(
+                    {"_id": delivery_id_obj},
+                    {
+                        "$set": {
+                            "status": update_data["status"],
+                            "last_updated": datetime.utcnow()
+                        }
+                    }
+                )
         else:
             # For other updates (like rejected_riders)
             result = delivery_collection.update_one(
