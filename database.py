@@ -200,6 +200,20 @@ def update_user_details_db(user_id: str, update_data: dict) -> bool:
         print(f"Error updating user details: {e}")
         return False
 
+def update_delivery(delivery_id, update_data):
+    """
+    Update delivery document in the database.
+    """
+    try:
+        result = deliveries_collection.update_one(
+            {"_id": ObjectId(delivery_id)},
+            {"$set": update_data}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating delivery: {e}")
+        return False
+
 
 def get_file_by_id(file_id):
     """
