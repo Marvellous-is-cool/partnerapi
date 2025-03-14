@@ -17,6 +17,14 @@ from database import (
     update_rider_details_db,
     update_user_details_db,
     update_delivery,
+    get_file_by_id,
+    create_chat,
+    get_chat_history,
+    mark_messages_as_read,
+    rate_rider,
+    rate_user,
+    get_rider_ratings,
+    get_user_ratings,
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -982,3 +990,276 @@ async def update_delivery_status(
             status_code=500,
             detail=f"Failed to update delivery status: {str(e)}"
         )
+
+# Add this model class after your existing BaseModel classes
+class RatingRequest(BaseModel):
+    rating: int
+    comment: str = None
+    delivery_id: str
+
+# Add these endpoints after your existing endpoints
+
+@app.post("/users/{user_id}/rate-rider/{rider_id}")
+async def user_rate_rider(
+    user_id: str,
+    rider_id: str,
+    rating_data: RatingRequest
+):
+    """
+    Endpoint for users to rate riders after a delivery.
+    """
+    # Verify user exists
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Verify delivery exists and is completed
+    delivery = get_delivery_by_id(rating_data.delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    # Check if delivery is completed
+    if delivery.get("status", {}).get("current") != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail="Can only rate completed deliveries"
+        )
+    
+    # Check if the delivery involves both the user and rider
+    if delivery.get("user_id") != user_id or delivery.get("rider_id") != rider_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only rate riders for your own deliveries"
+        )
+    
+    # Create rating data
+    rating_info = {
+        "user_id": user_id,
+        "rider_id": rider_id,
+        "delivery_id": rating_data.delivery_id,
+        "rating": rating_data.rating,
+        "comment": rating_data.comment,
+        "timestamp": datetime.utcnow()
+    }
+    
+    # Save the rating
+    rating_id = rate_rider(rating_info)
+    
+    if not rating_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save rating"
+        )
+    
+    return {
+        "status": "success",
+        "message": "Rider rated successfully",
+        "rating_id": rating_id,
+        "rider_id": rider_id,
+        "user_id": user_id
+    }
+
+@app.post("/riders/{rider_id}/rate-user/{user_id}")
+async def rider_rate_user(
+    rider_id: str,
+    user_id: str,
+    rating_data: RatingRequest
+):
+    """
+    Endpoint for riders to rate users after a delivery.
+    """
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Verify user exists
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify delivery exists and is completed
+    delivery = get_delivery_by_id(rating_data.delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    # Check if delivery is completed
+    if delivery.get("status", {}).get("current") != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail="Can only rate completed deliveries"
+        )
+    
+    # Check if the delivery involves both the user and rider
+    if delivery.get("user_id") != user_id or delivery.get("rider_id") != rider_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only rate users for deliveries you completed"
+        )
+    
+    # Create rating data
+    rating_info = {
+        "user_id": user_id,
+        "rider_id": rider_id,
+        "delivery_id": rating_data.delivery_id,
+        "rating": rating_data.rating,
+        "comment": rating_data.comment,
+        "timestamp": datetime.utcnow()
+    }
+    
+    # Save the rating
+    rating_id = rate_user(rating_info)
+    
+    if not rating_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save rating"
+        )
+    
+    return {
+        "status": "success",
+        "message": "User rated successfully",
+        "rating_id": rating_id,
+        "rider_id": rider_id,
+        "user_id": user_id
+    }
+
+@app.get("/riders/{rider_id}/ratings")
+async def get_rider_rating_history(rider_id: str):
+    """
+    Get all ratings for a specific rider.
+    """
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Get ratings
+    ratings = get_rider_ratings(rider_id)
+    
+    # Calculate average rating
+    if ratings:
+        avg_rating = sum(r.get("rating", 0) for r in ratings) / len(ratings)
+    else:
+        avg_rating = 0
+    
+    return {
+        "status": "success",
+        "rider_id": rider_id,
+        "average_rating": round(avg_rating, 1),
+        "total_ratings": len(ratings),
+        "ratings": ratings
+    }
+
+@app.get("/users/{user_id}/ratings")
+async def get_user_rating_history(user_id: str):
+    """
+    Get all ratings for a specific user.
+    """
+    # Verify user exists
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get ratings
+    ratings = get_user_ratings(user_id)
+    
+    # Calculate average rating
+    if ratings:
+        avg_rating = sum(r.get("rating", 0) for r in ratings) / len(ratings)
+    else:
+        avg_rating = 0
+    
+    return {
+        "status": "success",
+        "user_id": user_id,
+        "average_rating": round(avg_rating, 1),
+        "total_ratings": len(ratings),
+        "ratings": ratings
+    }
+
+
+@app.get("/riders/{rider_id}/overall-rating")
+async def get_rider_overall_rating(rider_id: str):
+    """
+    Get the overall rating for a specific rider.
+    """
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Get all ratings for this rider
+    ratings = get_rider_ratings(rider_id)
+    
+    # Calculate average rating
+    if ratings:
+        total_ratings = len(ratings)
+        avg_rating = sum(r.get("rating", 0) for r in ratings) / total_ratings
+        
+        # Get rating distribution
+        rating_distribution = {
+            "5": len([r for r in ratings if r.get("rating") == 5]),
+            "4": len([r for r in ratings if r.get("rating") == 4]),
+            "3": len([r for r in ratings if r.get("rating") == 3]),
+            "2": len([r for r in ratings if r.get("rating") == 2]),
+            "1": len([r for r in ratings if r.get("rating") == 1])
+        }
+    else:
+        total_ratings = 0
+        avg_rating = 0
+        rating_distribution = {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0}
+    
+    return {
+        "status": "success",
+        "rider_id": rider_id,
+        "rider_name": f"{rider.get('firstname', '')} {rider.get('lastname', '')}",
+        "average_rating": round(avg_rating, 1),
+        "total_ratings": total_ratings,
+        "rating_distribution": rating_distribution
+    }
+
+@app.get("/users/{user_id}/overall-rating")
+async def get_user_overall_rating(user_id: str):
+    """
+    Get the overall rating for a specific user.
+    """
+    # Verify user exists
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all ratings for this user
+    ratings = get_user_ratings(user_id)
+    
+    # Calculate average rating
+    if ratings:
+        total_ratings = len(ratings)
+        avg_rating = sum(r.get("rating", 0) for r in ratings) / total_ratings
+        
+        # Get rating distribution
+        rating_distribution = {
+            "5": len([r for r in ratings if r.get("rating") == 5]),
+            "4": len([r for r in ratings if r.get("rating") == 4]),
+            "3": len([r for r in ratings if r.get("rating") == 3]),
+            "2": len([r for r in ratings if r.get("rating") == 2]),
+            "1": len([r for r in ratings if r.get("rating") == 1])
+        }
+    else:
+        total_ratings = 0
+        avg_rating = 0
+        rating_distribution = {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0}
+    
+    return {
+        "status": "success",
+        "user_id": user_id,
+        "user_name": f"{user.get('firstname', '')} {user.get('lastname', '')}",
+        "average_rating": round(avg_rating, 1),
+        "total_ratings": total_ratings,
+        "rating_distribution": rating_distribution
+    }

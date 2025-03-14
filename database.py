@@ -323,3 +323,106 @@ def mark_messages_as_read(receiver_id: str, delivery_id: str):
         {"$set": {"read": True}}
     )
     return result.modified_count > 0
+
+
+# Add these collections after your existing collections
+rider_ratings_collection = db['rider_ratings']
+user_ratings_collection = db['user_ratings']
+
+def rate_rider(rating_data):
+    """
+    Save a rating for a rider.
+    """
+    try:
+        # Check if this user has already rated this rider for this delivery
+        existing_rating = rider_ratings_collection.find_one({
+            "user_id": rating_data["user_id"],
+            "rider_id": rating_data["rider_id"],
+            "delivery_id": rating_data["delivery_id"]
+        })
+        
+        if existing_rating:
+            # Update existing rating
+            result = rider_ratings_collection.update_one(
+                {"_id": existing_rating["_id"]},
+                {"$set": {
+                    "rating": rating_data["rating"],
+                    "comment": rating_data["comment"],
+                    "timestamp": rating_data["timestamp"]
+                }}
+            )
+            return str(existing_rating["_id"]) if result.modified_count > 0 else None
+        else:
+            # Insert new rating
+            result = rider_ratings_collection.insert_one(rating_data)
+            return str(result.inserted_id)
+    except Exception as e:
+        print(f"Error saving rider rating: {e}")
+        return None
+
+def rate_user(rating_data):
+    """
+    Save a rating for a user.
+    """
+    try:
+        # Check if this rider has already rated this user for this delivery
+        existing_rating = user_ratings_collection.find_one({
+            "user_id": rating_data["user_id"],
+            "rider_id": rating_data["rider_id"],
+            "delivery_id": rating_data["delivery_id"]
+        })
+        
+        if existing_rating:
+            # Update existing rating
+            result = user_ratings_collection.update_one(
+                {"_id": existing_rating["_id"]},
+                {"$set": {
+                    "rating": rating_data["rating"],
+                    "comment": rating_data["comment"],
+                    "timestamp": rating_data["timestamp"]
+                }}
+            )
+            return str(existing_rating["_id"]) if result.modified_count > 0 else None
+        else:
+            # Insert new rating
+            result = user_ratings_collection.insert_one(rating_data)
+            return str(result.inserted_id)
+    except Exception as e:
+        print(f"Error saving user rating: {e}")
+        return None
+
+def get_rider_ratings(rider_id):
+    """
+    Get all ratings for a specific rider.
+    """
+    try:
+        ratings = list(rider_ratings_collection.find({"rider_id": rider_id}))
+        
+        # Process ratings for JSON serialization
+        for rating in ratings:
+            rating["_id"] = str(rating["_id"])
+            if "timestamp" in rating and isinstance(rating["timestamp"], datetime):
+                rating["timestamp"] = rating["timestamp"].isoformat()
+        
+        return ratings
+    except Exception as e:
+        print(f"Error getting rider ratings: {e}")
+        return []
+
+def get_user_ratings(user_id):
+    """
+    Get all ratings for a specific user.
+    """
+    try:
+        ratings = list(user_ratings_collection.find({"user_id": user_id}))
+        
+        # Process ratings for JSON serialization
+        for rating in ratings:
+            rating["_id"] = str(rating["_id"])
+            if "timestamp" in rating and isinstance(rating["timestamp"], datetime):
+                rating["timestamp"] = rating["timestamp"].isoformat()
+        
+        return ratings
+    except Exception as e:
+        print(f"Error getting user ratings: {e}")
+        return []
