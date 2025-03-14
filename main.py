@@ -869,16 +869,30 @@ async def update_delivery_status(
                     detail="This delivery has already been accepted by another rider"
                 )
             
+            # Check if rider previously rejected this delivery
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id in rejected_riders:
+                # Remove from rejected list first
+                rejected_riders.remove(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+            
             # Update delivery with rider info and status
-            update_data = {
+            update_data.update({
                 "rider_id": rider_id,
                 "status": {
                     "current": "ongoing",
                     "timestamp": datetime.utcnow()
                 }
-            }
+            })
             
         elif action == "reject":
+            # Cannot reject if already accepted by this rider
+            if delivery.get("rider_id") == rider_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You have already accepted this delivery. Use cancel instead."
+                )
+                
             rejected_riders = delivery.get("rejected_riders", [])
             if rider_id not in rejected_riders:
                 rejected_riders.append(rider_id)
@@ -889,6 +903,23 @@ async def update_delivery_status(
             if rider_id in rejected_riders:
                 rejected_riders.remove(rider_id)
                 update_data["rejected_riders"] = rejected_riders
+                
+        elif action == "cancel":
+            # Only the assigned rider can cancel
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only the assigned rider can cancel this delivery"
+                )
+                
+            # Reset the delivery status
+            update_data = {
+                "rider_id": None,
+                "status": {
+                    "current": "pending",
+                    "timestamp": datetime.utcnow()
+                }
+            }
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No updates required")
@@ -897,7 +928,7 @@ async def update_delivery_status(
         success = update_delivery(delivery_id, update_data)
         
         if not success:
-            print(f"Failed to update delivery {delivery_id} with data: {update_data}")  # Debug print
+            print(f"Failed to update delivery {delivery_id} with data: {update_data}")
             raise HTTPException(
                 status_code=500,
                 detail="Failed to update delivery status in database"
@@ -907,10 +938,10 @@ async def update_delivery_status(
             "status": "success",
             "message": f"Delivery {action} successful",
             "delivery_id": delivery_id,
-            "updated_data": update_data  # Include what was updated for debugging
+            "updated_data": update_data
         }
     except Exception as e:
-        print(f"Error in update_delivery_status: {str(e)}")  # Debug print
+        print(f"Error in update_delivery_status: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update delivery status: {str(e)}"
