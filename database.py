@@ -3,6 +3,7 @@ from bson import ObjectId
 # from gridfs import GridFS
 import gridfs
 from pymongo import MongoClient
+from datetime import datetime
 
 # MongoDB connection details
 MONGO_URI = (
@@ -205,30 +206,35 @@ def update_delivery(delivery_id, update_data):
     Update delivery document in the database.
     """
     try:
+        from bson import ObjectId
+        
         # Convert string ID to ObjectId
         delivery_id_obj = ObjectId(delivery_id)
         
-        # Handle nested status updates properly
-        if "status.current" in update_data:
-            update_data = {
-                "$set": {
-                    "rider_id": update_data["rider_id"],
-                    "status": {
-                        "current": update_data["status.current"],
-                        "timestamp": update_data["status.timestamp"]
+        # Handle the status update properly
+        if "status" in update_data:
+            result = delivery_collection.update_one(
+                {"_id": delivery_id_obj},
+                {
+                    "$set": {
+                        "rider_id": update_data["rider_id"],
+                        "status": update_data["status"],
+                        "last_updated": datetime.utcnow()
                     }
                 }
-            }
+            )
         else:
-            update_data = {"$set": update_data}
+            # For other updates (like rejected_riders)
+            result = delivery_collection.update_one(
+                {"_id": delivery_id_obj},
+                {"$set": update_data}
+            )
         
-        result = deliveries_collection.update_one(
-            {"_id": delivery_id_obj},
-            update_data
-        )
+        print(f"Update result: {result.modified_count}")  # Debug print
         return result.modified_count > 0
+        
     except Exception as e:
-        print(f"Error updating delivery: {e}")
+        print(f"Error in update_delivery: {str(e)}")  # Debug print
         return False
 
 
