@@ -7,7 +7,7 @@ from typing import Optional
 SMTP_SERVER = "mail.micodelivery.com"  # Update with your mail server
 SMTP_PORT = 465  # SSL port
 SENDER_EMAIL = "info@micodelivery.com"
-SENDER_PASSWORD = "micodelivery123*"  # Update with actual password
+SENDER_PASSWORD = "Micoinfo123*"  # Update with actual password
 
 def send_email(recipient_email: str, subject: str, body: str) -> bool:
     """
