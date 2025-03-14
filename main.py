@@ -847,65 +847,76 @@ async def update_delivery_status(
     """
     Endpoint to update delivery status and manage rider interactions.
     """
-    # Verify delivery exists
-    delivery = get_delivery_by_id(delivery_id)
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Delivery not found")
-    
-    # Verify rider exists
-    rider = get_rider_by_id(rider_id)
-    if not rider:
-        raise HTTPException(status_code=404, detail="Rider not found")
-    
-    # Initialize update data
-    update_data = {}
-    
-    if action == "accept":
-        # Check if delivery is already accepted by another rider
-        if delivery.get("status", {}).get("current") == "ongoing":
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        # Initialize update data
+        update_data = {}
+        
+        if action == "accept":
+            # Check if delivery is already accepted by another rider
+            current_status = delivery.get("status", {}).get("current", "pending")
+            if current_status == "ongoing":
+                raise HTTPException(
+                    status_code=400,
+                    detail="This delivery has already been accepted by another rider"
+                )
+            
+            # Update delivery with rider info and status
+            update_data = {
+                "rider_id": rider_id,
+                "status.current": "ongoing",
+                "status.timestamp": datetime.utcnow()  # Use UTC time
+            }
+            
+        elif action == "reject":
+            # Add rider to rejected list if not already there
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id not in rejected_riders:
+                rejected_riders.append(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+                
+        elif action == "undo_reject":
+            # Remove rider from rejected list
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id in rejected_riders:
+                rejected_riders.remove(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+                
+        else:
             raise HTTPException(
                 status_code=400,
-                detail="This delivery has already been accepted by another rider"
+                detail="Invalid action. Must be 'accept', 'reject', or 'undo_reject'"
             )
         
-        # Update delivery with rider info and status
-        update_data = {
-            "rider_id": rider_id,
-            "status.current": "ongoing",
-            "status.timestamp": datetime.now()
-        }
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No updates required")
         
-    elif action == "reject":
-        # Add rider to rejected list if not already there
-        rejected_riders = delivery.get("rejected_riders", [])
-        if rider_id not in rejected_riders:
-            rejected_riders.append(rider_id)
-            update_data["rejected_riders"] = rejected_riders
-            
-    elif action == "undo_reject":
-        # Remove rider from rejected list
-        rejected_riders = delivery.get("rejected_riders", [])
-        if rider_id in rejected_riders:
-            rejected_riders.remove(rider_id)
-            update_data["rejected_riders"] = rejected_riders
-            
-    else:
+        # Update the delivery in database
+        success = update_delivery(delivery_id, update_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update delivery status in database"
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Delivery {action} successful",
+            "delivery_id": delivery_id
+        }
+    except Exception as e:
+        print(f"Error in update_delivery_status: {e}")
         raise HTTPException(
-            status_code=400,
-            detail="Invalid action. Must be 'accept', 'reject', or 'undo_reject'"
+            status_code=500,
+            detail=f"An error occurred while updating delivery: {str(e)}"
         )
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No updates required")
-    
-    # Update the delivery in database
-    success = update_delivery(delivery_id, update_data)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update delivery")
-    
-    return {
-        "status": "success",
-        "message": f"Delivery {action} successful",
-        "delivery_id": delivery_id
-    }

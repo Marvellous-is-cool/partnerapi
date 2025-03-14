@@ -205,9 +205,26 @@ def update_delivery(delivery_id, update_data):
     Update delivery document in the database.
     """
     try:
+        # Convert string ID to ObjectId
+        delivery_id_obj = ObjectId(delivery_id)
+        
+        # Handle nested status updates properly
+        if "status.current" in update_data:
+            update_data = {
+                "$set": {
+                    "rider_id": update_data["rider_id"],
+                    "status": {
+                        "current": update_data["status.current"],
+                        "timestamp": update_data["status.timestamp"]
+                    }
+                }
+            }
+        else:
+            update_data = {"$set": update_data}
+        
         result = deliveries_collection.update_one(
-            {"_id": ObjectId(delivery_id)},
-            {"$set": update_data}
+            {"_id": delivery_id_obj},
+            update_data
         )
         return result.modified_count > 0
     except Exception as e:
