@@ -140,8 +140,20 @@ def get_all_deliveries():
     Fetch all deliveries from the database.
     """
     deliveries = list(delivery_collection.find())  # Get all deliveries
+    
+    # Convert ObjectId to string for each delivery
     for delivery in deliveries:
-        delivery["_id"] = str(delivery["_id"])  # Convert ObjectId to string
+        delivery["_id"] = str(delivery["_id"])
+        
+        # Ensure timestamp is in ISO format if it exists
+        if "status" in delivery and isinstance(delivery["status"], dict) and "timestamp" in delivery["status"]:
+            if isinstance(delivery["status"]["timestamp"], datetime):
+                delivery["status"]["timestamp"] = delivery["status"]["timestamp"].isoformat()
+                
+        # Also convert last_updated if it exists
+        if "last_updated" in delivery and isinstance(delivery["last_updated"], datetime):
+            delivery["last_updated"] = delivery["last_updated"].isoformat()
+            
     return deliveries
 
 def get_delivery_by_id(delivery_id: str):

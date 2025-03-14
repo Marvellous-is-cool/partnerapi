@@ -312,14 +312,27 @@ def fetch_all_users():
 @app.get("/deliveries")
 def fetch_all_deliveries():
     """
-    Endpoint to fetch all deliveries.
+    Endpoint to fetch all deliveries, sorted by latest first.
     """
     deliveries = get_all_deliveries()
 
     if not deliveries:
         raise HTTPException(status_code=404, detail="No deliveries found")
 
-    return {"status": "success", "deliveries": deliveries}
+    # Sort deliveries by timestamp in descending order (latest first)
+    # First try to sort by status.timestamp, then fallback to other timestamp fields
+    sorted_deliveries = sorted(
+        deliveries,
+        key=lambda d: (
+            d.get("status", {}).get("timestamp", "")
+            or d.get("last_updated", "")
+            or d.get("date_created", "")
+            or ""
+        ),
+        reverse=True
+    )
+
+    return {"status": "success", "deliveries": sorted_deliveries}
 
 
 @app.get("/deliveries/{delivery_id}")
