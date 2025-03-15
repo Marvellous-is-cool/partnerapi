@@ -742,6 +742,13 @@ async def create_car_delivery(request: CarDeliveryRequest):
             detail="Invalid transaction type. Choose 'cash' or 'online'."
         )
     
+    # Validate delivery speed
+    if request.deliveryspeed.lower() not in ["express", "standard"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid delivery speed. Choose 'express' or 'standard'."
+        )
+    
     # Prepare the delivery data
     delivery_data = {
         "user_id": request.user_id,
@@ -751,6 +758,7 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "endpoint": request.endpoint,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
+        "deliveryspeed": request.deliveryspeed.lower(),
         "status": request.status.dict()
     }
     

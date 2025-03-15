@@ -68,10 +68,8 @@ class CarDeliveryRequest(BaseModel):
     vehicletype: str
     transactiontype: str
     status: DeliveryStatus = DeliveryStatus()
-    accepted: bool = False
-    rejected: bool = False
-    additional_data: Optional[Dict] = None
-
+    deliveryspeed: str
+    
 class CreateDeliveryRequest(BaseModel):
     user_id: str
     price: int
