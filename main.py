@@ -1271,3 +1271,57 @@ async def get_user_overall_rating(user_id: str):
         "total_ratings": total_ratings,
         "rating_distribution": rating_distribution
     }
+
+
+@app.put("/users/{user_id}/profile-picture")
+async def update_user_profile_picture(
+    user_id: str,
+    profile_picture: UploadFile = File(...)
+):
+    """
+    Endpoint to update or add a user's profile picture.
+    """
+    # Verify user exists
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    try:
+        # Read the uploaded file
+        profile_picture_data = await profile_picture.read()
+        
+        # Save the profile picture to GridFS and get the file ID
+        from database import save_file_to_gridfs
+        file_id = save_file_to_gridfs(profile_picture_data, profile_picture.filename)
+        
+        if not file_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save profile picture"
+            )
+        
+        # Update the user's profile with the picture URL
+        profile_picture_url = f"https://deliveryapi-plum.vercel.app/files/{file_id}"
+        success = update_user_details_db(
+            user_id, 
+            {"profile_picture_url": profile_picture_url}
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update user profile with picture URL"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Profile picture updated successfully",
+            "profile_picture_url": profile_picture_url
+        }
+    
+    except Exception as e:
+        print(f"Error updating profile picture: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update profile picture: {str(e)}"
+        )

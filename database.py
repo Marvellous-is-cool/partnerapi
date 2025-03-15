@@ -284,6 +284,16 @@ def get_file_by_id(file_id):
         print(f"Error retrieving file: {e}")
         return None
 
+def save_file_to_gridfs(file_data, filename, content_type="image/jpeg"):
+    """
+    Save a file to GridFS and return the file ID.
+    """
+    try:
+        file_id = fs.put(file_data, filename=filename, content_type=content_type)
+        return str(file_id)
+    except Exception as e:
+        print(f"Error saving file to GridFS: {e}")
+        return None
 
 def create_chat(sender_id: str, receiver_id: str, message: str, delivery_id: str):
     """
