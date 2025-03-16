@@ -1,6 +1,7 @@
 from typing import Dict, Optional
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+from datetime import datetime
 
 class RiderSignup(BaseModel):
     firstname: str
@@ -69,7 +70,7 @@ class CarDeliveryRequest(BaseModel):
     transactiontype: str
     status: DeliveryStatus = DeliveryStatus()
     deliveryspeed: str
-    
+
 class CreateDeliveryRequest(BaseModel):
     user_id: str
     price: int
@@ -80,6 +81,14 @@ class CreateDeliveryRequest(BaseModel):
     transactiontype: str  
     packagesize: str
     status: Dict[str, bool] = {"accepted": False, "rejected": False}
+
+
+class TransactionUpdateRequest(BaseModel):
+    transaction_type: Optional[str] = None  # "cash" or "online"
+    payment_status: Optional[str] = None  # "pending", "paid", "failed"
+    payment_reference: Optional[str] = None  # For online payments
+    payment_date: Optional[datetime] = None
+    amount_paid: Optional[float] = None
 
     class Config:
         orm_mode = True

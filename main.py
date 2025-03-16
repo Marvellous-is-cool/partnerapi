@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup
+from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest
 from database import (
     get_all_deliveries,
     get_delivery_by_id,
@@ -25,6 +25,7 @@ from database import (
     rate_user,
     get_rider_ratings,
     get_user_ratings,
+
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -1324,4 +1325,84 @@ async def update_user_profile_picture(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update profile picture: {str(e)}"
+        )
+
+
+@app.put("/delivery/{delivery_id}/transaction")
+async def update_delivery_transaction(
+    delivery_id: str,
+    transaction_data: TransactionUpdateRequest
+):
+    """
+    Endpoint to update transaction information for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Prepare update data
+        update_data = {}
+        
+        # Only include fields that are provided
+        if transaction_data.transaction_type is not None:
+            if transaction_data.transaction_type.lower() not in ["cash", "online"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid transaction type. Choose 'cash' or 'online'."
+                )
+            update_data["transactiontype"] = transaction_data.transaction_type.lower()
+        
+        # Create or update transaction info
+        transaction_info = delivery.get("transaction_info", {})
+        
+        if transaction_data.payment_status is not None:
+            if transaction_data.payment_status.lower() not in ["pending", "paid", "failed"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid payment status. Choose 'pending', 'paid', or 'failed'."
+                )
+            transaction_info["payment_status"] = transaction_data.payment_status.lower()
+        
+        if transaction_data.payment_reference is not None:
+            transaction_info["payment_reference"] = transaction_data.payment_reference
+        
+        if transaction_data.payment_date is not None:
+            transaction_info["payment_date"] = transaction_data.payment_date
+        
+        if transaction_data.amount_paid is not None:
+            transaction_info["amount_paid"] = transaction_data.amount_paid
+        
+        # Add last updated timestamp
+        transaction_info["last_updated"] = datetime.utcnow()
+        
+        # Add transaction info to update data
+        if transaction_info:
+            update_data["transaction_info"] = transaction_info
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No transaction data provided for update")
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, update_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update transaction information"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Transaction information updated successfully",
+            "delivery_id": delivery_id,
+            "updated_data": update_data
+        }
+    
+    except Exception as e:
+        print(f"Error updating transaction information: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update transaction information: {str(e)}"
         )
