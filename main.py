@@ -950,7 +950,6 @@ async def update_delivery_status(
                     "timestamp": datetime.utcnow()
                 }
             }
-            
         elif action == "complete":
             # Only the assigned rider can complete the delivery
             if delivery.get("rider_id") != rider_id:
@@ -970,6 +969,29 @@ async def update_delivery_status(
             update_data = {
                 "status": {
                     "current": "completed",
+                    "timestamp": datetime.utcnow()
+                }
+            }
+            
+        elif action == "inprogress":
+            # Only the assigned rider can mark as in progress
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the assigned rider can mark this delivery as in progress"
+                )
+            
+            # Check if delivery is in the correct state to be marked as in progress
+            if delivery.get("status", {}).get("current") != "ongoing":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only ongoing deliveries can be marked as in progress"
+                )
+            
+            # Update the delivery status to in progress
+            update_data = {
+                "status": {
+                    "current": "inprogress",
                     "timestamp": datetime.utcnow()
                 }
             }
