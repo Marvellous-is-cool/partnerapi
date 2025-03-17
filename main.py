@@ -959,10 +959,11 @@ async def update_delivery_status(
                 )
             
             # Check if delivery is in the correct state to be completed
-            if delivery.get("status", {}).get("current") != "ongoing":
+            current_status = delivery.get("status", {}).get("current")
+            if current_status not in ["ongoing", "inprogress"]:
                 raise HTTPException(
                     status_code=400,
-                    detail="Only ongoing deliveries can be completed"
+                    detail="Only ongoing or in-progress deliveries can be completed"
                 )
             
             # Update the delivery status to completed
