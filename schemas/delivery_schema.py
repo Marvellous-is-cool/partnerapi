@@ -90,5 +90,12 @@ class TransactionUpdateRequest(BaseModel):
     payment_date: Optional[datetime] = None
     amount_paid: Optional[float] = None
 
+
+class RiderLocationUpdate(BaseModel):
+    latitude: float
+    longitude: float
+    eta_minutes: Optional[int] = None
+
+
     class Config:
         orm_mode = True

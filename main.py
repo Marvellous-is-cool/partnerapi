@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest
+from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from database import (
     get_all_deliveries,
     get_delivery_by_id,
@@ -1428,4 +1428,74 @@ async def update_delivery_transaction(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update transaction information: {str(e)}"
+        )
+
+
+@app.put("/delivery/{delivery_id}/rider-location")
+async def update_rider_location(
+    delivery_id: str,
+    rider_id: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    eta_minutes: Optional[int] = Form(None)
+):
+    """
+    Endpoint to update rider's current location and ETA for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify rider exists and is assigned to this delivery
+        if delivery.get("rider_id") != rider_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the assigned rider can update location for this delivery"
+            )
+        
+        # Check if delivery is in a valid state for location updates
+        current_status = delivery.get("status", {}).get("current")
+        if current_status not in ["ongoing", "inprogress"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Location can only be updated for ongoing or in-progress deliveries"
+            )
+        
+        # Prepare location update data
+        location_data = {
+            "rider_location": {
+                "latitude": latitude,
+                "longitude": longitude,
+                "last_updated": datetime.utcnow()
+            }
+        }
+        
+        # Add ETA if provided
+        if eta_minutes is not None:
+            location_data["rider_location"]["eta_minutes"] = eta_minutes
+            location_data["rider_location"]["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, location_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update rider location"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Rider location updated successfully",
+            "delivery_id": delivery_id,
+            "updated_data": location_data
+        }
+    
+    except Exception as e:
+        print(f"Error updating rider location: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update rider location: {str(e)}"
         )
