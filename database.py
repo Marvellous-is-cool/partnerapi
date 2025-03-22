@@ -33,7 +33,9 @@ def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike
     # Save files to GridFS first
     nationalid_id = fs.put(nationalid_file, filename="nationalid", content_type="image/jpeg")
     facial_picture_id = fs.put(facial_picture, filename="facial_picture", content_type="image/jpeg")
-    utility_bill_id = fs.put(utility_bill, filename="utility_bill", content_type="image/jpeg")
+    utility_bill_id = None
+    if utility_bill:
+        utility_bill_id = fs.put(utility_bill, filename="utility_bill", content_type="image/jpeg")
     bike_papers_id = fs.put(bike_papers, filename="bike_registration_papers", content_type="image/jpeg")
     riders_license_id = fs.put(riders_license_file, filename="riders_license", content_type="image/jpeg")
 
@@ -41,7 +43,7 @@ def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike
     rider_data["file_ids"] = {
         "nationalid": str(nationalid_id),
         "facial_picture": str(facial_picture_id),
-        "utility_bill": str(utility_bill_id),
+        "utility_bill": str(utility_bill_id) if utility_bill_id else None,
         "bike_papers": str(bike_papers_id),
         "riders_license": str(riders_license_id),
     }

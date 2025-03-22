@@ -93,7 +93,7 @@ async def rider_signup(
     vehicle_type: str = Form(...),
     nationalid: UploadFile = File(...),
     recent_facial_picture: UploadFile = File(...),
-    recent_utility_bill: UploadFile = File(...),
+    recent_utility_bill: UploadFile = File(None),
     registration_papers: UploadFile = File(...),
     license: UploadFile = File(...),
     email_notification: bool = Form(True),
@@ -140,7 +140,7 @@ async def rider_signup(
     # Read the uploaded files
     nationalid_file = await nationalid.read()
     facial_picture = await recent_facial_picture.read()
-    utility_bill = await recent_utility_bill.read()
+    utility_bill = await recent_utility_bill.read() if recent_utility_bill else None
     registration_papers_file = await registration_papers.read()
     license_file = await license.read()
 
