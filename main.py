@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from database import (
+    delete_account,
     get_all_deliveries,
     get_delivery_by_id,
     get_rider_by_email,
@@ -1499,3 +1500,30 @@ async def update_rider_location(
             status_code=500,
             detail=f"Failed to update rider location: {str(e)}"
         )
+
+
+@app.delete("/accounts/{account_type}/{user_id}")
+async def delete_account_endpoint(account_type: str, user_id: str):
+    """
+    Endpoint to delete a user or rider account based on their ID and account type.
+    """
+    if account_type not in ["user", "rider"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid account type. Must be 'user' or 'rider'."
+        )
+    
+    # Attempt to delete the account
+    success = delete_account(user_id, account_type)
+    
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Failed to delete {account_type} account. Account may not exist."
+        )
+    
+    return {
+        "status": "success",
+        "message": f"{account_type.capitalize()} account deleted successfully",
+        "user_id": user_id
+    }

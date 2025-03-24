@@ -438,3 +438,22 @@ def get_user_ratings(user_id):
     except Exception as e:
         print(f"Error getting user ratings: {e}")
         return []
+
+
+def delete_account(user_id: str, account_type: str) -> bool:
+    """
+    Delete a user or rider account from the database based on their ID and account type.
+    Returns True if the deletion was successful, False otherwise.
+    """
+    try:
+        if account_type == "user":
+            result = users_collection.delete_one({"_id": ObjectId(user_id)})
+        elif account_type == "rider":
+            result = riders_collection.delete_one({"_id": ObjectId(user_id)})
+        else:
+            raise ValueError("Invalid account type. Must be 'user' or 'rider'.")
+
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting account: {e}")
+        return False
