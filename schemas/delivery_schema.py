@@ -15,7 +15,7 @@ class RiderSignup(BaseModel):
     accountbank: str
     accountname: str
     accountnumber: str
-    bvn: str
+    # bvn: str
     homeaddressdetails: str
     branding: str
     vehicle_type: str

@@ -25,7 +25,10 @@ from database import (
     rate_user,
     get_rider_ratings,
     get_user_ratings,
-
+    delete_rider_by_id,
+    delete_user_by_id,
+    delete_selected_riders,
+    delete_selected_users
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -42,6 +45,9 @@ from pydantic import BaseModel
 from fastapi.responses import Response
 
 app = FastAPI()
+
+class DeleteRequest(BaseModel):
+    ids: List[str]
 
 
 @app.get("/")
@@ -87,7 +93,7 @@ async def rider_signup(
     accountbank: str = Form(...),
     accountname: str = Form(...),
     accountnumber: str = Form(...),
-    bvn: str = Form(...),
+    # bvn: str = Form(...),
     homeaddressdetails: str = Form(...),
     branding: str = Form(...),
     vehicle_type: str = Form(...),
@@ -125,7 +131,7 @@ async def rider_signup(
         "accountbank": accountbank,
         "accountname": accountname,
         "accountnumber": accountnumber,
-        "bvn": bvn,
+        # "bvn": bvn,
         "homeaddressdetails": homeaddressdetails,
         "branding": branding,
         "vehicle_type": vehicle_type.lower(),
@@ -222,6 +228,27 @@ def fetch_all_riders():
     riders = get_all_riders()
     return {"status": "success", "riders": riders}
 
+# delete rider by id
+@app.delete("/riders/{rider_id}/delete")
+async def delete_rider(rider_id: str):
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    success = delete_rider_by_id(rider_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to delete rider {rider_id}")
+    
+    return {"status": "success", "message": "Rider deleted successfully"}    
+
+# delete selected riders
+@app.delete("/riders/delete")
+async def delete_multiple_riders(request: DeleteRequest):
+    deleted_count = delete_selected_riders(request.ids)
+    if deleted_count == 0:
+        raise HTTPException(status_code=500, detail="No riders found to delete")
+    
+    return {"status": "success", "message": f"Deleted {deleted_count} riders successfully"}
 
 # ================= User Endpoints =================
 
@@ -316,6 +343,30 @@ def fetch_all_users():
     users = get_all_users()
     return {"status": "success", "users": users}
 
+
+# delete user by id
+@app.delete("/users/{user_id}/delete")
+async def delete_user(user_id: str):
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    success = delete_user_by_id(user_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to delete user {user_id}")
+    
+    return {"status": "success", "message": "User deleted successfully"}    
+
+# delete selected users
+@app.delete("/users/delete")
+async def delete_multiple_users(request: DeleteRequest):
+    deleted_count = delete_selected_users(request.ids)
+    if deleted_count == 0:
+        raise HTTPException(status_code=500, detail="No users found to delete")
+    
+    return {"status": "success", "message": f"Deleted {deleted_count} users successfully"}
+
+# ================= Deliveries Endpoints =================
 
 
 @app.get("/deliveries")
@@ -478,7 +529,6 @@ async def update_user_details(
         "message": "User details updated successfully",
         "user_id": user_id
     }
-
 
 @app.put("/auth/change-password/{user_type}/{user_id}")
 async def change_password(

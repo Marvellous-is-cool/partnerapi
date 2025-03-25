@@ -81,6 +81,31 @@ def get_all_riders():
     return riders
 
 
+def delete_rider_by_id(rider_id: str) -> bool:
+    """
+    Delete a rider by ID.
+    """
+    try:
+        result = riders_collection.delete_one({"_id": ObjectId(rider_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting rider: {e}")
+        return False
+
+
+def delete_selected_riders(rider_ids: list) -> int:
+    """
+    Delete multiple riders by their IDs.
+    """
+    try:
+        object_ids = [ObjectId(rider_id) for rider_id in rider_ids]
+        result = riders_collection.delete_many({"_id": {"$in": object_ids}})
+        return result.deleted_count
+    except Exception as e:
+        print(f"Error deleting riders: {e}")
+        return 0    
+    
+    
 # ================= Users Functions =================
 
 def insert_user(user_data: dict):
@@ -116,6 +141,30 @@ def get_all_users():
     return users
 
 
+def delete_user_by_id(user_id: str) -> bool:
+    """
+    Delete a user by ID.
+    """
+    try:
+        result = users_collection.delete_one({"_id": ObjectId(user_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        return False
+
+
+def delete_selected_users(user_ids: list) -> int:
+    """
+    Delete multiple users by their IDs.
+    """
+    try:
+        object_ids = [ObjectId(user_id) for user_id in user_ids]
+        result = users_collection.delete_many({"_id": {"$in": object_ids}})
+        return result.deleted_count
+    except Exception as e:
+        print(f"Error deleting users: {e}")
+        return 0    
+    
 # ================= Utility Functions =================
 
 def ping_database():
