@@ -93,7 +93,7 @@ async def rider_signup(
     accountbank: str = Form(...),
     accountname: str = Form(...),
     accountnumber: str = Form(...),
-    # bvn: str = Form(...),
+    # bvn: str = Form(...), # removed bvn
     homeaddressdetails: str = Form(...),
     branding: str = Form(...),
     vehicle_type: str = Form(...),
