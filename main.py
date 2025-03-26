@@ -434,6 +434,32 @@ async def activate_rider(rider_id: str):
         "rider_id": rider_id
     }
 
+@app.put("/riders/{rider_id}/deactivate")
+async def activate_rider(rider_id: str):
+    """
+    Endpoint to deactivate a rider by changing their status from 'inactive' to 'active'.
+    """
+    # Get the rider first
+    rider = get_rider_by_id(rider_id)
+    
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    if rider["status"] == "inactive":
+        raise HTTPException(status_code=400, detail="Rider is already inactive")
+    
+    # Update rider status to inactive
+    success = update_rider_status(rider_id, "inactive")
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update rider status")
+    
+    return {
+        "status": "success",
+        "message": "Rider deactivated successfully",
+        "rider_id": rider_id
+    }
+
 
 @app.put("/riders/{rider_id}/update")
 async def update_rider_details(
