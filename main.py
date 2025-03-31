@@ -1407,6 +1407,7 @@ async def update_user_profile_picture(
             {"profile_picture_url": profile_picture_url}
         )
         
+        
         if not success:
             raise HTTPException(
                 status_code=500,
