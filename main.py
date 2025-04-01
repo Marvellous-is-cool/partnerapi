@@ -1639,7 +1639,22 @@ async def admin_signin(email: str = Form(...), password: str = Form(...)):
         return {
             "status": "success",
             "message": "admin signed in successfully!",
-            "admin": admin,  # Return all user data
+            "admin": admin,  # Return all admin data
         }
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+
+@app.get("/admins/{admin_id}")
+def fetch_admin_by_id(admin_id: str):
+    """
+    Endpoint to fetch admin's data by their ID.
+    """
+    admin = get_admin_by_id(admin_id)
+
+    if admin:
+        # Convert ObjectId to string for serialization
+        admin["_id"] = str(admin["_id"])
+        return {"status": "success", "admin": admin}
+    else:
+        raise HTTPException(status_code=404, detail="Admin not found")
