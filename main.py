@@ -12,6 +12,9 @@ from database import (
     insert_user,
     get_user_by_email,
     get_user_by_id,
+    insert_admin,
+    get_admin_by_email,
+    get_admin_by_id,
     get_all_users,
     update_rider_status,
     update_rider_details_db,
@@ -1576,3 +1579,67 @@ async def update_rider_location(
             status_code=500,
             detail=f"Failed to update rider location: {str(e)}"
         )
+        
+        
+# ================= Admin Endpoints =================
+
+@app.post("/admin/signup")
+async def admin_signup(
+    username: str = Form(...),
+    role: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+):
+    """
+    Endpoint to handle admin signup.
+    """
+    # Check if email already exists
+    existing_admin = get_admin_by_email(email)
+    if existing_admin:
+        raise HTTPException(
+            status_code=400, detail="An admin already used this email."
+        )
+
+    # Hash the password using SHA-256
+    hashed_password = hash_password_sha256(password)
+
+    # Prepare admin data
+    admin_data = {
+        "username": username,
+        "role": role,
+        "email": email,
+        "password": hashed_password,  
+        "date_joined": datetime.now()
+    }
+
+    # Insert admin into the database
+    admin_id = insert_admin(admin_data)
+
+    return {
+        "status": "success",
+        "message": "admin signed up successfully!",
+        "admin_id": admin_id,
+    }
+
+
+@app.post("/admin/signin")
+async def admin_signin(email: str = Form(...), password: str = Form(...)):
+    """
+    Endpoint to handle admin sign-in. Verifies email and password (SHA-256 hash).
+    """
+    # Hash the password for comparison
+    hashed_password = hash_password_sha256(password)
+
+    # Find the admin in the database
+    admin = get_admin_by_email(email)
+
+    if admin and admin["password"] == hashed_password:
+        # Convert ObjectId to string for serialization
+        admin["_id"] = str(admin["_id"])
+        return {
+            "status": "success",
+            "message": "admin signed in successfully!",
+            "admin": admin,  # Return all user data
+        }
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")

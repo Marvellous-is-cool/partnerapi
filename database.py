@@ -17,6 +17,7 @@ client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 riders_collection = db["riders"]
 users_collection = db["users"]
+admins_collection = db["admins"]
 delivery_collection = db['deliveries']
 chat_collection = db['chats']
 
@@ -166,6 +167,7 @@ def delete_selected_users(user_ids: list) -> int:
         return 0    
     
 # ================= Utility Functions =================
+
 
 def ping_database():
     """
@@ -506,3 +508,28 @@ def delete_account(user_id: str, account_type: str) -> bool:
     except Exception as e:
         print(f"Error deleting account: {e}")
         return False
+    
+    
+# ================= Admins Functions =================
+
+def insert_admin(admin_data: dict):
+    """
+    Insert admin data into MongoDB with hashed password.
+    """
+    # Hash the password before storing
+    admin_id = admins_collection.insert_one(admin_data).inserted_id
+    return str(admin_id)
+
+
+def get_admin_by_email(email: str):
+    """
+    Get admin data by email.
+    """
+    return admins_collection.find_one({"email": email})
+
+
+def get_admin_by_id(admin_id: str):
+    """
+    Get admin data by ID.
+    """
+    return admins_collection.find_one({"_id": ObjectId(admin_id)})
