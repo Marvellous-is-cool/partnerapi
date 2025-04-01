@@ -1581,6 +1581,63 @@ async def update_rider_location(
             detail=f"Failed to update rider location: {str(e)}"
         )
         
+
+
+        
+@app.get("/delivery/{delivery_id}/rider-location")
+async def get_rider_location(
+    delivery_id: str,
+    rider_id: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+):
+    """
+    Endpoint to get rider's current location and ETA for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify rider exists and is assigned to this delivery
+        if delivery.get("rider_id") != rider_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the assigned rider can update location for this delivery"
+            )
+        
+        # Check if delivery is in a valid state for location updates
+        current_status = delivery.get("status", {}).get("current")
+        if current_status not in ["ongoing", "inprogress"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Location can only be gotten for ongoing or in-progress deliveries"
+            )
+        
+        # Prepare location data
+        location_data = {
+            "rider_location": {
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        }
+        
+        
+        return {
+            "status": "success",
+            "delivery_id": delivery_id,
+            "location_data": location_data,
+            "rider_id": rider_id
+        }
+    
+    except Exception as e:
+        print(f"Error getting rider location: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get rider location: {str(e)}"
+        )
+        
         
 # ================= Admin Endpoints =================
 
