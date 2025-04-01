@@ -14,6 +14,7 @@ from database import (
     get_user_by_id,
     insert_admin,
     get_admin_by_email,
+    get_admin_by_username,
     get_admin_by_id,
     get_all_users,
     update_rider_status,
@@ -1594,10 +1595,11 @@ async def admin_signup(
     Endpoint to handle admin signup.
     """
     # Check if email already exists
-    existing_admin = get_admin_by_email(email)
-    if existing_admin:
+    existing_admin_email = get_admin_by_email(email)
+    existing_admin_username = get_admin_by_username(username)
+    if existing_admin_email or existing_admin_username:
         raise HTTPException(
-            status_code=400, detail="An admin already used this email."
+            status_code=400, detail="An admin already used this email or username."
         )
 
     # Hash the password using SHA-256
@@ -1623,7 +1625,7 @@ async def admin_signup(
 
 
 @app.post("/admin/signin")
-async def admin_signin(email: str = Form(...), password: str = Form(...)):
+async def admin_signin(username: str = Form(...), password: str = Form(...)):
     """
     Endpoint to handle admin sign-in. Verifies email and password (SHA-256 hash).
     """
@@ -1631,7 +1633,7 @@ async def admin_signin(email: str = Form(...), password: str = Form(...)):
     hashed_password = hash_password_sha256(password)
 
     # Find the admin in the database
-    admin = get_admin_by_email(email)
+    admin = get_admin_by_username(username)
 
     if admin and admin["password"] == hashed_password:
         # Convert ObjectId to string for serialization

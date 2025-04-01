@@ -528,6 +528,13 @@ def get_admin_by_email(email: str):
     return admins_collection.find_one({"email": email})
 
 
+def get_admin_by_username(username: str):
+    """
+    Get admin data by username.
+    """
+    return admins_collection.find_one({"username": username})
+
+
 def get_admin_by_id(admin_id: str):
     """
     Get admin data by ID.
