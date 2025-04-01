@@ -17,6 +17,7 @@ from database import (
     get_admin_by_username,
     get_admin_by_id,
     get_all_users,
+    get_all_admins,
     update_rider_status,
     update_rider_details_db,
     update_user_details_db,
@@ -1687,6 +1688,15 @@ async def admin_signup(
         "message": "admin signed up successfully!",
         "admin_id": admin_id,
     }
+
+
+@app.get("/admins")
+def fetch_all_admins():
+    """
+    Endpoint to fetch all admins' data.
+    """
+    admins = get_all_admins()
+    return {"status": "success", "admins": admins}
 
 
 @app.post("/admin/signin")

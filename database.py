@@ -535,6 +535,16 @@ def insert_admin(admin_data: dict):
     return str(admin_id)
 
 
+def get_all_admins():
+    """
+    Fetch all admins' data.
+    """
+    admins = list(admins_collection.find())
+    for admin in admins:
+        admin["_id"] = str(admin["_id"])
+    return admins
+
+
 def get_admin_by_email(email: str):
     """
     Get admin data by email.
