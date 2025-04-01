@@ -1547,6 +1547,7 @@ async def update_rider_location(
         # Prepare location update data
         location_data = {
             "rider_location": {
+                "rider_id": rider_id,
                 "latitude": latitude,
                 "longitude": longitude,
                 "last_updated": datetime.utcnow()
@@ -1612,6 +1613,7 @@ async def get_rider_location(delivery_id: str):
         return {
             "status": "success",
             "delivery_id": delivery_id,
+            "rider_id": rider_location.get("rider_id"),
             "location_data": {
                 "latitude": rider_location.get("latitude"),
                 "longitude": rider_location.get("longitude"),
