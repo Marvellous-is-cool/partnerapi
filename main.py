@@ -1582,15 +1582,8 @@ async def update_rider_location(
         )
         
 
-
-        
 @app.get("/deliveries/{delivery_id}/rider-location")
-async def get_rider_location(
-    delivery_id: str,
-    rider_id: str = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-):
+async def get_rider_location(delivery_id: str):
     """
     Endpoint to get rider's current location and ETA for a delivery.
     """
@@ -1600,35 +1593,33 @@ async def get_rider_location(
         if not delivery:
             raise HTTPException(status_code=404, detail="Delivery not found")
         
-        # Verify rider exists and is assigned to this delivery
-        if delivery.get("rider_id") != rider_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Only the assigned rider can update location for this delivery"
-            )
-        
         # Check if delivery is in a valid state for location updates
         current_status = delivery.get("status", {}).get("current")
         if current_status not in ["ongoing", "inprogress"]:
             raise HTTPException(
                 status_code=400,
-                detail="Location can only be gotten for ongoing or in-progress deliveries"
+                detail="Location can only be retrieved for ongoing or in-progress deliveries"
             )
         
-        # Prepare location data
-        location_data = {
-            "rider_location": {
-                "latitude": latitude,
-                "longitude": longitude,
-            }
-        }
-        
+        # Get rider location from delivery data
+        rider_location = delivery.get("rider_location")
+        if not rider_location:
+            raise HTTPException(
+                status_code=404,
+                detail="No location data available for this delivery"
+            )
         
         return {
             "status": "success",
             "delivery_id": delivery_id,
-            "location_data": location_data,
-            "rider_id": rider_id
+            "rider_id": delivery.get("rider_id"),
+            "location_data": {
+                "latitude": rider_location.get("latitude"),
+                "longitude": rider_location.get("longitude"),
+                "last_updated": rider_location.get("last_updated"),
+                "eta_minutes": rider_location.get("eta_minutes"),
+                "eta_time": rider_location.get("eta_time")
+            }
         }
     
     except Exception as e:
@@ -1637,8 +1628,7 @@ async def get_rider_location(
             status_code=500,
             detail=f"Failed to get rider location: {str(e)}"
         )
-        
-        
+    
 # ================= Admin Endpoints =================
 
 @app.post("/admin/signup")
