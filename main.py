@@ -1584,7 +1584,7 @@ async def update_rider_location(
 
 
         
-@app.get("/delivery/{delivery_id}/rider-location")
+@app.get("/deliveries/{delivery_id}/rider-location")
 async def get_rider_location(
     delivery_id: str,
     rider_id: str = Form(...),
