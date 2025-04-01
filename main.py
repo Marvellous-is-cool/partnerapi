@@ -1609,6 +1609,7 @@ async def get_rider_location(delivery_id: str):
                 status_code=404,
                 detail="No location data available for this delivery"
             )
+            
         
         return {
             "status": "success",
