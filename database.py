@@ -509,6 +509,20 @@ def delete_account(user_id: str, account_type: str) -> bool:
         print(f"Error deleting account: {e}")
         return False
     
+
+def delete_delivery_by_id(delivery_id: str) -> bool:
+    """
+    Delete a delivery by ID.
+    """
+    try:
+        result = delivery_collection.delete_one({"_id": ObjectId(delivery_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting delivery: {e}")
+        return False
+
+
+
     
 # ================= Admins Functions =================
 

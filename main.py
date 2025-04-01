@@ -30,6 +30,7 @@ from database import (
     get_rider_ratings,
     get_user_ratings,
     delete_rider_by_id,
+    delete_delivery_by_id,
     delete_user_by_id,
     delete_selected_riders,
     delete_selected_users
@@ -1584,9 +1585,9 @@ async def update_rider_location(
         
 
 @app.get("/deliveries/{delivery_id}/rider-location")
-async def get_rider_location(delivery_id: str):
+async def get_delivery_location(delivery_id: str):
     """
-    Endpoint to get rider's current location and ETA for a delivery.
+    Endpoint to get delivery's current location and ETA for a delivery.
     """
     try:
         # Verify delivery exists
@@ -1631,6 +1632,21 @@ async def get_rider_location(delivery_id: str):
             detail=f"Failed to get rider location: {str(e)}"
         )
     
+    
+    
+# delete delivery by id
+@app.delete("/deliveries/{delivery_id}/delete")
+async def delete_delivery(delivery_id: str):
+    delivery = get_delivery_by_id(delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    success = delete_delivery_by_id(delivery_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to delete delivery {delivery_id}")
+    
+    return {"status": "success", "message": "Delivery deleted successfully"}    
+
 # ================= Admin Endpoints =================
 
 @app.post("/admin/signup")
