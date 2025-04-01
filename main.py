@@ -1612,7 +1612,6 @@ async def get_rider_location(delivery_id: str):
         return {
             "status": "success",
             "delivery_id": delivery_id,
-            "rider_id": delivery.get("rider_id"),
             "location_data": {
                 "latitude": rider_location.get("latitude"),
                 "longitude": rider_location.get("longitude"),
