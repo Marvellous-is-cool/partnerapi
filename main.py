@@ -757,6 +757,34 @@ async def reset_password(
         "message": "Password has been reset successfully"
     }
 
+
+@app.post("/check-email/{user_type}")
+async def check_user_email(user_type: str, email: str = Form(...)):
+    """
+    Endpoint to check email.
+    """
+    if user_type not in ["rider", "user"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user type. Must be 'rider' or 'user'."
+        )
+    
+    # Get user data based on type
+    if user_type == "rider":
+        user_data = get_rider_by_email(email)
+    else:
+        user_data = get_user_by_email(email)
+    
+    exists = bool(user_data)
+    
+    
+    return {
+        "status": "endpoint ran successfully",
+         "message": exists
+    }
+    
+
+
 @app.post("/delivery/bike")
 async def create_bike_delivery(request: BikeDeliveryRequest):
     """
