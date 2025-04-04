@@ -1888,7 +1888,7 @@ async def update_admin_details(
     if username: update_data["username"] = username
     if role: update_data["role"] = role
     if email: update_data["email"] = email
-    if password: update_data["password"] = password
+    if password: update_data["password"] = hash_password_sha256(password)
     
     if not update_data:
         raise HTTPException(status_code=400, detail="No data provided for update")
