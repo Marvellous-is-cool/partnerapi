@@ -590,3 +590,34 @@ def delete_admin_by_id(admin_id: str) -> bool:
         print(f"Error deleting admin: {e}")
         return False
 
+def update_admin_role(admin_id: str, new_role: str) -> bool:
+    """
+    Update admin's role in the database.
+    Returns True if update was successful, False otherwise.
+    """
+    try:
+        result = admins_collection.update_one(
+            {"_id": ObjectId(admin_id)},
+            {"$set": {"role": new_role}}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating admin role: {e}")
+        return False
+
+
+def update_admin_details_db(admin_id: str, update_data: dict) -> bool:
+    """
+    Update admin's details in the database.
+    Returns True if update was successful, False otherwise.
+    """
+    try:
+        result = admins_collection.update_one(
+            {"_id": ObjectId(admin_id)},
+            {"$set": update_data}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Error updating admin details: {e}")
+        return False
+

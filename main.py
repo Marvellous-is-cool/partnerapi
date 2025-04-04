@@ -20,6 +20,8 @@ from database import (
     get_all_admins,
     update_rider_status,
     update_rider_details_db,
+    update_admin_role,
+    update_admin_details_db,
     update_user_details_db,
     update_delivery,
     get_file_by_id,
@@ -1835,6 +1837,74 @@ def fetch_admin_by_id(admin_id: str):
     else:
         raise HTTPException(status_code=404, detail="Admin not found")
     
+# change admin role
+@app.put("/admins/{admin_id}/change-role")
+async def change_admin_role(admin_id: str, role: str = Form(...)):
+    """
+    Endpoint to update a admin by changing their role.
+    """
+    # Get the admin first
+    admin = get_admin_by_id(admin_id)
+    
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    
+    if admin["role"] == role:
+        raise HTTPException(status_code=400, detail="Admin is already in this role")
+    
+    # Update admin role
+    success = update_admin_role(admin_id, role)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update admin role")
+    
+    return {
+        "status": "success",
+        "message": "Admin role changed successfully to {role}",
+        "admin_id": admin_id
+    }
+
+
+# change admin details
+@app.put("/admins/{admin_id}/update")
+async def update_admin_details(
+    admin_id: str,
+    username: str = Form(...),
+    role: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+):
+    """
+    Endpoint to update admin's details.
+    """
+    # Get the admin first
+    admin = get_admin_by_id(admin_id)
+    
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    
+    # Prepare update data (only include fields that are provided)
+    update_data = {}
+    if username: update_data["username"] = username
+    if role: update_data["role"] = role
+    if email: update_data["email"] = email
+    if password: update_data["password"] = password
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data provided for update")
+    
+    # Update admin details
+    success = update_admin_details_db(admin_id, update_data)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update admin details")
+    
+    return {
+        "status": "success",
+        "message": "Admin details updated successfully",
+        "admin_id": admin_id
+    }
+ 
     
 # delete admin by id
 @app.delete("/admins/{admin_id}/delete")
