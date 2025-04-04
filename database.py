@@ -577,3 +577,16 @@ def get_admin_by_id(admin_id: str):
     Get admin data by ID.
     """
     return admins_collection.find_one({"_id": ObjectId(admin_id)})
+
+
+def delete_admin_by_id(admin_id: str) -> bool:
+    """
+    Delete a admin by ID.
+    """
+    try:
+        result = admins_collection.delete_one({"_id": ObjectId(admin_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting admin: {e}")
+        return False
+

@@ -31,6 +31,7 @@ from database import (
     get_rider_ratings,
     get_user_ratings,
     delete_rider_by_id,
+    delete_admin_by_id,
     delete_delivery_by_id,
     delete_user_by_id,
     delete_selected_riders,
@@ -1833,3 +1834,18 @@ def fetch_admin_by_id(admin_id: str):
         return {"status": "success", "admin": admin}
     else:
         raise HTTPException(status_code=404, detail="Admin not found")
+    
+    
+# delete admin by id
+@app.delete("/admins/{admin_id}/delete")
+async def delete_admin(admin_id: str):
+    admin = get_admin_by_id(admin_id)
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    
+    success = delete_admin_by_id(admin_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to delete admin {admin_id}")
+    
+    return {"status": "success", "message": "Admin deleted successfully"}    
+
