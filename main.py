@@ -819,6 +819,7 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
         "distance": request.distance,
         "startpoint": request.startpoint,
         "endpoint": request.endpoint,
+        "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
         "packagesize": request.packagesize,
@@ -868,6 +869,7 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "distance": request.distance,
         "startpoint": request.startpoint,
         "endpoint": request.endpoint,
+        "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
         "deliveryspeed": request.deliveryspeed.lower(),
@@ -880,6 +882,56 @@ async def create_car_delivery(request: CarDeliveryRequest):
     return {
         "status": "success",
         "message": "Car delivery created successfully!",
+        "delivery_id": delivery_id
+    }
+
+
+@app.post("/delivery/bus-truck")
+async def create_car_delivery(request: CarDeliveryRequest):
+    """
+    Endpoint to create a new car delivery request.
+    """
+    # Validate vehicle type
+    if request.vehicletype.lower() != "bus" or request.vehicletype.lower() != "truck":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type. Must be 'bus' or 'truck."
+        )
+    
+    # Validate transaction type
+    if request.transactiontype.lower() not in ["cash", "online"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid transaction type. Choose 'cash' or 'online'."
+        )
+    
+    # Validate delivery speed
+    if request.deliveryspeed.lower() not in ["bus", "truck"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid delivery speed. Choose 'bus' or 'truck'."
+        )
+    
+    # Prepare the delivery data
+    delivery_data = {
+        "user_id": request.user_id,
+        "price": request.price,
+        "distance": request.distance,
+        "startpoint": request.startpoint,
+        "endpoint": request.endpoint,
+        "stops": request.stops,
+        "vehicletype": request.vehicletype.lower(),
+        "transactiontype": request.transactiontype.lower(),
+        "deliveryspeed": request.deliveryspeed.lower(),
+        "status": request.status.dict()
+    }
+    
+    # Insert the delivery data into the database
+    delivery_id = insert_delivery(delivery_data)
+    
+    return {
+        "status": "success",
+        "message": "Bus / Truck delivery created successfully!",
         "delivery_id": delivery_id
     }
 

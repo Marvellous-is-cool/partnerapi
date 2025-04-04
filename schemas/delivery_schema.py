@@ -54,6 +54,7 @@ class BikeDeliveryRequest(BaseModel):
     distance: str
     startpoint: str
     endpoint: str
+    stops: list
     vehicletype: str
     transactiontype: str
     packagesize: str
@@ -66,6 +67,18 @@ class CarDeliveryRequest(BaseModel):
     distance: str
     startpoint: str
     endpoint: str
+    stops: list
+    vehicletype: str
+    transactiontype: str
+    status: DeliveryStatus = DeliveryStatus()
+    deliveryspeed: str
+class CarDeliveryRequest(BaseModel):
+    user_id: str
+    price: float
+    distance: str
+    startpoint: str
+    endpoint: str
+    stops: list
     vehicletype: str
     transactiontype: str
     status: DeliveryStatus = DeliveryStatus()
