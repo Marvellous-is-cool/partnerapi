@@ -1850,7 +1850,7 @@ async def change_admin_role(admin_id: str, role: str = Form(...)):
         raise HTTPException(status_code=404, detail="Admin not found")
     
     if admin["role"] == role:
-        raise HTTPException(status_code=400, detail="Admin is already in this role")
+        raise HTTPException(status_code=400, detail=f"Admin is already in '{role}' role")
     
     # Update admin role
     success = update_admin_role(admin_id, role)
@@ -1860,7 +1860,7 @@ async def change_admin_role(admin_id: str, role: str = Form(...)):
     
     return {
         "status": "success",
-        "message": "Admin role changed successfully to {role}",
+        "message": f"Admin role changed successfully to {role}",
         "admin_id": admin_id
     }
 
