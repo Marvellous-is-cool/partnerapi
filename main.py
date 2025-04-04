@@ -34,7 +34,8 @@ from database import (
     delete_delivery_by_id,
     delete_user_by_id,
     delete_selected_riders,
-    delete_selected_users
+    delete_selected_users,
+    delete_all_deliveries
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -1675,6 +1676,23 @@ async def delete_delivery(delivery_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete delivery {delivery_id}")
     
     return {"status": "success", "message": "Delivery deleted successfully"}    
+
+# delete all deliveries
+@app.delete("/deliveries/delete")
+async def delete_delivery(execute_code: str):
+    code = "askthatmanheisagooodman"
+    if execute_code != code:
+        raise HTTPException(status_code=403, detail="Invalid code")
+    
+    # Call the delete_all_deliveries function
+    deleted_count = delete_all_deliveries()
+    
+    # Check if any deliveries were deleted
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="No deliveries found to delete")
+    
+    return {"status": "success", "message": f"All deliveries deleted successfully. Total: {deleted_count}"}
+
 
 # ================= Admin Endpoints =================
 

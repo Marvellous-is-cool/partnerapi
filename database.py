@@ -520,6 +520,19 @@ def delete_delivery_by_id(delivery_id: str) -> bool:
     except Exception as e:
         print(f"Error deleting delivery: {e}")
         return False
+    
+    
+def delete_all_deliveries() -> int:
+    """
+    Delete all deliveries from the database.
+    Returns the count of deleted deliveries.
+    """
+    try:
+        result = delivery_collection.delete_many({})
+        return result.deleted_count
+    except Exception as e:
+        print(f"Error deleting deliveries: {e}")
+        return 0
 
 
 
