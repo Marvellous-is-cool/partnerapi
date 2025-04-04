@@ -1869,10 +1869,10 @@ async def change_admin_role(admin_id: str, role: str = Form(...)):
 @app.put("/admins/{admin_id}/update")
 async def update_admin_details(
     admin_id: str,
-    username: Optional[str] = Form(...),
-    role: Optional[str] = Form(...),
-    email: Optional[str] = Form(...),
-    password: Optional[str] = Form(...),
+    username: Optional[str] = None,
+    role: Optional[str] = None,
+    email: Optional[str] = None,
+    password: Optional[str] = None,
 ):
     """
     Endpoint to update admin's details.
