@@ -1883,15 +1883,14 @@ async def update_admin_details(
     if not admin:
         raise HTTPException(status_code=404, detail="Admin not found")
     
-    
-    hashed_password = hash_password_sha256(password)
-    
     # Prepare update data (only include fields that are provided)
     update_data = {}
     if username: update_data["username"] = username
     if role: update_data["role"] = role
     if email: update_data["email"] = email
-    if password: update_data["password"] = hashed_password
+    if password:  # Only hash if password is provided
+        hashed_password = hash_password_sha256(password)
+        update_data["password"] = hashed_password
     
     if not update_data:
         raise HTTPException(status_code=400, detail="No data provided for update")
@@ -1907,7 +1906,6 @@ async def update_admin_details(
         "message": "Admin details updated successfully",
         "admin_id": admin_id
     }
- 
     
 # delete admin by id
 @app.delete("/admins/{admin_id}/delete")
