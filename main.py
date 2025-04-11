@@ -525,6 +525,252 @@ async def update_rider_details(
         "rider_id": rider_id
     }
 
+
+
+@app.put("/riders/{rider_id}/update-nationalid")
+async def update_rider_nationalid(
+    rider_id: str,
+    nationalid: UploadFile = File(...),
+):
+    """
+    Endpoint to update rider's national ID document.
+    """
+    try:
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        update_data = {}
+        file_updates = {}
+        
+        nationalid_file = await nationalid.read()
+        if nationalid_file:
+            from database import save_file_to_gridfs
+            file_id = save_file_to_gridfs(nationalid_file, nationalid.filename)
+            if file_id:
+                file_updates["nationalid"] = file_id
+        
+        if file_updates:
+            existing_file_ids = rider.get("file_ids", {})
+            existing_file_ids.update(file_updates)
+            update_data["file_ids"] = existing_file_ids
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid file provided")
+        
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update national ID")
+        
+        return {
+            "status": "success",
+            "message": "National ID updated successfully",
+            "rider_id": rider_id
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error updating national ID: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update national ID: {str(e)}")
+
+@app.put("/riders/{rider_id}/update-facial-picture")
+async def update_rider_facial_picture(
+    rider_id: str,
+    facial_picture: UploadFile = File(...),
+):
+    """
+    Endpoint to update rider's facial picture.
+    """
+    try:
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        update_data = {}
+        file_updates = {}
+        
+        facial_picture_file = await facial_picture.read()
+        if facial_picture_file:
+            from database import save_file_to_gridfs
+            file_id = save_file_to_gridfs(facial_picture_file, facial_picture.filename)
+            if file_id:
+                file_updates["facial_picture"] = file_id
+                facial_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+                update_data["facial_picture_url"] = facial_picture_url
+        
+        if file_updates:
+            existing_file_ids = rider.get("file_ids", {})
+            existing_file_ids.update(file_updates)
+            update_data["file_ids"] = existing_file_ids
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid file provided")
+        
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update facial picture")
+        
+        return {
+            "status": "success",
+            "message": "Facial picture updated successfully",
+            "rider_id": rider_id,
+            "facial_picture_url": update_data.get("facial_picture_url")
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error updating facial picture: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update facial picture: {str(e)}")
+
+@app.put("/riders/{rider_id}/update-utility-bill")
+async def update_rider_utility_bill(
+    rider_id: str,
+    utility_bill: UploadFile = File(...),
+):
+    """
+    Endpoint to update rider's utility bill.
+    """
+    try:
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        update_data = {}
+        file_updates = {}
+        
+        utility_bill_file = await utility_bill.read()
+        if utility_bill_file:
+            from database import save_file_to_gridfs
+            file_id = save_file_to_gridfs(utility_bill_file, utility_bill.filename)
+            if file_id:
+                file_updates["utility_bill"] = file_id
+        
+        if file_updates:
+            existing_file_ids = rider.get("file_ids", {})
+            existing_file_ids.update(file_updates)
+            update_data["file_ids"] = existing_file_ids
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid file provided")
+        
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update utility bill")
+        
+        return {
+            "status": "success",
+            "message": "Utility bill updated successfully",
+            "rider_id": rider_id
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error updating utility bill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update utility bill: {str(e)}")
+
+@app.put("/riders/{rider_id}/update-registration-papers")
+async def update_rider_registration_papers(
+    rider_id: str,
+    registration_papers: UploadFile = File(...),
+):
+    """
+    Endpoint to update rider's vehicle registration papers.
+    """
+    try:
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        update_data = {}
+        file_updates = {}
+        
+        registration_papers_file = await registration_papers.read()
+        if registration_papers_file:
+            from database import save_file_to_gridfs
+            file_id = save_file_to_gridfs(registration_papers_file, registration_papers.filename)
+            if file_id:
+                file_updates["registration_papers"] = file_id
+        
+        if file_updates:
+            existing_file_ids = rider.get("file_ids", {})
+            existing_file_ids.update(file_updates)
+            update_data["file_ids"] = existing_file_ids
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid file provided")
+        
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update registration papers")
+        
+        return {
+            "status": "success",
+            "message": "Registration papers updated successfully",
+            "rider_id": rider_id
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error updating registration papers: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update registration papers: {str(e)}")
+
+@app.put("/riders/{rider_id}/update-license")
+async def update_rider_license(
+    rider_id: str,
+    license: UploadFile = File(...),
+):
+    """
+    Endpoint to update rider's driver's license.
+    """
+    try:
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        update_data = {}
+        file_updates = {}
+        
+        license_file = await license.read()
+        if license_file:
+            from database import save_file_to_gridfs
+            file_id = save_file_to_gridfs(license_file, license.filename)
+            if file_id:
+                file_updates["license"] = file_id
+        
+        if file_updates:
+            existing_file_ids = rider.get("file_ids", {})
+            existing_file_ids.update(file_updates)
+            update_data["file_ids"] = existing_file_ids
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid file provided")
+        
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update license")
+        
+        return {
+            "status": "success",
+            "message": "License updated successfully",
+            "rider_id": rider_id
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error updating license: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update license: {str(e)}")
+
+
 @app.put("/users/{user_id}/update")
 async def update_user_details(
     user_id: str,
