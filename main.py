@@ -1275,6 +1275,69 @@ async def get_file(file_id: str):
 class ChatMessage(BaseModel):
     message: str
 
+
+@app.put("/riders/{rider_id}/vehicle-picture")
+async def update_rider_vehicle_picture(
+    rider_id: str,
+    vehicle_picture: UploadFile = File(...)
+):
+    """
+    Endpoint to update or add a rider's vehicle picture.
+    """
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    try:
+        # Read the uploaded file
+        vehicle_picture_data = await vehicle_picture.read()
+        
+        # Save the vehicle picture to GridFS and get the file ID
+        from database import save_file_to_gridfs
+        file_id = save_file_to_gridfs(vehicle_picture_data, vehicle_picture.filename)
+        
+        if not file_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save vehicle picture"
+            )
+        
+        # Update the rider's profile with the picture URL and file ID
+        vehicle_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        
+        # Prepare update data
+        update_data = {"vehicle_picture_url": vehicle_picture_url}
+        
+        # Update file_ids collection if it exists
+        existing_file_ids = rider.get("file_ids", {})
+        existing_file_ids["vehicle_picture"] = file_id
+        update_data["file_ids"] = existing_file_ids
+        
+        success = update_rider_details_db(
+            rider_id, 
+            update_data
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update rider profile with vehicle picture URL"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Vehicle picture updated successfully",
+            "vehicle_picture_url": vehicle_picture_url
+        }
+    
+    except Exception as e:
+        print(f"Error updating vehicle picture: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update vehicle picture: {str(e)}"
+        )
+
 @app.post("/chat/{delivery_id}/{sender_id}/{receiver_id}")
 async def send_message(
     delivery_id: str,
