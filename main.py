@@ -2066,6 +2066,8 @@ async def admin_signup(
     email: str = Form(...),
     password: str = Form(...),
 ):
+    
+    
     """
     Endpoint to handle admin signup.
     """
