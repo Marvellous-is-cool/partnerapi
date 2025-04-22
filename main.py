@@ -51,10 +51,25 @@ from typing import Optional
 from fastapi.responses import StreamingResponse
 from database import get_file_by_id  # Add this to your database imports
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from fastapi.responses import Response
 
+from fastapi import BackgroundTasks
+from email_service import EmailService
+
+
 app = FastAPI()
+
+# ================= Email Configuration =================
+# initialize the email service
+email_service = EmailService()
+
+class EmailRequest(BaseModel):
+    email: EmailStr
+    subject: str
+    body: str
+
+
 
 class DeleteRequest(BaseModel):
     ids: List[str]
@@ -114,6 +129,7 @@ async def rider_signup(
     license: UploadFile = File(...),
     email_notification: bool = Form(True),
     push_notification: bool = Form(True),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Endpoint to handle rider signup with required details and multiple file uploads.
@@ -177,6 +193,16 @@ async def rider_signup(
         update_rider_details_db(rider_id, {"facial_picture_url": facial_picture_url})
         rider_data["facial_picture_url"] = facial_picture_url
 
+    
+    if rider_id:
+        # Send a welcome email in background
+        background_tasks.add_task(
+            email_service.send_email,
+            subject="Welcome to Delivery App",
+            recipients=[email],
+            body=email_service.rider_signup_template(firstname)
+        )    
+    
     return {
         "status": "success",
         "message": "Rider signed up successfully!",
@@ -271,6 +297,7 @@ async def user_signup(
     phone: str = Form(...),
     email_notification: bool = Form(True),
     push_notification: bool = Form(True),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Endpoint to handle user signup.
@@ -299,6 +326,15 @@ async def user_signup(
 
     # Insert user into the database
     user_id = insert_user(user_data)
+    
+    if user_id:
+        # Send a welcome email in background
+        background_tasks.add_task(
+            email_service.send_email,
+            subject="Welcome to Delivery App",
+            recipients=[email],
+            body=email_service.user_signup_template(firstname)
+        )
 
     return {
         "status": "success",
@@ -524,8 +560,6 @@ async def update_rider_details(
         "message": "Rider details updated successfully",
         "rider_id": rider_id
     }
-
-
 
 @app.put("/riders/{rider_id}/update-nationalid")
 async def update_rider_nationalid(
@@ -1033,8 +1067,6 @@ async def check_user_email(user_type: str, email: str = Form(...)):
          "message": exists
     }
     
-
-
 @app.post("/delivery/bike")
 async def create_bike_delivery(request: BikeDeliveryRequest):
     """
@@ -1134,7 +1166,6 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "delivery_id": delivery_id
     }
 
-
 @app.post("/delivery/bus-truck")
 async def create_car_delivery(request: CarDeliveryRequest):
     """
@@ -1184,7 +1215,6 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "delivery_id": delivery_id
     }
 
-
 @app.get("/files/{file_id}")
 async def get_file(file_id: str):
     """
@@ -1208,8 +1238,6 @@ async def get_file(file_id: str):
     except Exception as e:
         print(f"Error retrieving file: {e}")
         raise HTTPException(status_code=404, detail="File not found")
-
-
 class ChatMessage(BaseModel):
     message: str
 
@@ -1435,7 +1463,61 @@ async def update_delivery_status(
             detail=f"Failed to update delivery status: {str(e)}"
         )
 
-# Add this model class after your existing BaseModel classes
+
+
+# Delivery Responses
+@app.put("/delivery/{delivery_id}/status")
+async def update_delivery_status(
+    delivery_id: str,
+    status: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Endpoint to update the status of a delivery.
+    """
+    #  Get delivery details
+    delivery = get_delivery_by_id(delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    # Update delivery status
+    success = update_delivery(delivery_id, status)
+    
+    if success:
+        # Get user and rider details
+        user = get_user_by_id(delivery["user_id"])
+        rider = get_rider_by_id(delivery["rider_id"])
+        
+        # Send notification to user
+        if user and user.get("email"):
+            background_tasks.add_task(
+                email_service.send_email,
+                subject=f"Delivery Status Update: {status}",
+                recipient=user["email"],
+                body=email_service.delivery_template(status, delivery_id)
+            )
+            
+        # Send notification to rider
+        if rider and rider.get("email") and rider.get("email_notification", True):
+            background_tasks.add_task(
+                email_service.send_email,
+                subject=f"Delivery Status Update: {status}",
+                recipient=rider["email"],
+                body=email_service.delivery_template(status, delivery_id)
+            )
+            
+        return {
+            "status": "success",
+            "message": f"Delivery status updated to {status}",
+            "delivery_id": delivery_id
+        }
+        
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to update delivery status"
+    )
+            
+    
 class RatingRequest(BaseModel):
     rating: int
     comment: str = None
@@ -1914,7 +1996,6 @@ async def update_rider_location(
             detail=f"Failed to update rider location: {str(e)}"
         )
         
-
 @app.get("/deliveries/{delivery_id}/rider-location")
 async def get_delivery_location(delivery_id: str):
     """
@@ -1963,8 +2044,7 @@ async def get_delivery_location(delivery_id: str):
             detail=f"Failed to get rider location: {str(e)}"
         )
     
-    
-    
+
 # delete delivery by id
 @app.delete("/deliveries/{delivery_id}/delete")
 async def delete_delivery(delivery_id: str):
@@ -2168,3 +2248,37 @@ async def delete_admin(admin_id: str):
     
     return {"status": "success", "message": "Admin deleted successfully"}    
 
+
+
+# SEND EMAILS
+@app.post("/send-email")
+async def send_custom_email(
+    email_data: EmailRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Endpoint to send custom emails.
+    """
+    
+    try:
+        # Format the message using the template
+        formatted_message = email_service.custom_email_template(email_data.message)
+        
+        # Send the email in the background
+        background_tasks.add_task(
+            email_service.send_email,
+            subject=email_data.subject,
+            recipient=email_data.recipient,
+            body=formatted_message
+        )
+        
+        return {
+            "status": "success",
+            "message": "Email sent successfully",
+            "recipient": email_data.email
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send email: {str(e)}"
+        )
