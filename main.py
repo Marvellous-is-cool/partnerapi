@@ -56,9 +56,40 @@ from fastapi.responses import Response
 
 from fastapi import BackgroundTasks
 from email_service import EmailService
+from fastapi.middleware.cors import CORSMiddleware
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
+
+class ErrorHandlingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": str(e),
+                    "detail": "Internal server error"
+                }
+            )
 
 app = FastAPI()
+
+# ================== Middleware Configuration =================
+app.add_middleware(ErrorHandlingMiddleware)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ================= Email Configuration =================
 # initialize the email service
@@ -68,6 +99,10 @@ class EmailRequest(BaseModel):
     email: EmailStr
     subject: str
     body: str
+    
+    @property
+    def message(self):
+        return self.body
 
 
 
@@ -2377,32 +2412,34 @@ async def delete_admin(admin_id: str):
 
 # SEND EMAILS
 @app.post("/send-email")
-async def send_custom_email(
-    email_data: EmailRequest,
-    background_tasks: BackgroundTasks = BackgroundTasks()
-):
+async def send_custom_email(email_data: EmailRequest):
     """
     Endpoint to send custom emails.
     """
-    
     try:
-        # Format the message using the template
-        formatted_message = email_service.custom_email_template(email_data.message)
+        formatted_message = email_service.custom_email_template(email_data.body)
         
-        # Send the email in the background
-        background_tasks.add_task(
-            email_service.send_email,
+        # Send email synchronously for testing
+        success = await email_service.send_email(
             subject=email_data.subject,
-            recipient=email_data.recipient,
+            recipients=[email_data.email],
             body=formatted_message
         )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send email: Check server logs for details"
+            )
         
         return {
             "status": "success",
             "message": "Email sent successfully",
             "recipient": email_data.email
         }
+        
     except Exception as e:
+        print(f"Error in send_custom_email: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to send email: {str(e)}"

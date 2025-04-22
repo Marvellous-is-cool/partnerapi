@@ -10,18 +10,25 @@ class EmailService:
         """
         Send an email using FastAPI Mail.
         """
-        
-        try: 
+        try:
             message = MessageSchema(
                 subject=subject,
                 recipients=recipients,
                 body=body,
-                subtype="html",
+                subtype="html"
             )
+            
+            print(f"Attempting to send email to: {recipients}")
+            print(f"Subject: {subject}")
+            
             await self.fastmail.send_message(message)
+            print("Email sent successfully")
             return True
+            
         except Exception as e:
-            print(f"Error sending email: {e}")
+            print(f"Error sending email: {str(e)}")
+            print(f"Recipients: {recipients}")
+            print(f"Subject: {subject}")
             return False
         
     def rider_signup_template(self, firstname: str) -> str:
@@ -71,7 +78,7 @@ class EmailService:
         <html>
             <body>
                 <div style="padding: 20px; background-color: #f7f7f7;">
-                    {message}
+                   <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: white; border-radius: 5px;"> {message} </div>
                 </div>
             </body>
         </html>

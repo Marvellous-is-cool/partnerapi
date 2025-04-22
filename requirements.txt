@@ -34,3 +34,12 @@ uvicorn==0.34.0
 # uvloop==0.21.0
 watchfiles==1.0.3
 websockets==14.1
+# Email handling
+fastapi-mail==1.4.1
+email-validator==2.2.0
+# Utilities
+typing-extensions==4.12.2
+# Development tools
+httptools==0.6.4
+# # Optional but recommended for production
+# gunicorn==21.2.0

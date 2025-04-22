@@ -1,4 +1,5 @@
 from fastapi_mail import ConnectionConfig
+# from pydantic import EmailStr
 
 email_conf = ConnectionConfig(
     MAIL_USERNAME="adebayoinioluwamarvellous1@gmail.com",
@@ -6,7 +7,8 @@ email_conf = ConnectionConfig(
     MAIL_FROM="adebayoinioluwamarvellous1@gmail.com",
     MAIL_PORT=587,
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_SSL_TLS= False,
+    MAIL_SSL_TLS=False,
     MAIL_STARTTLS=True,
     USE_CREDENTIALS=True,
+    VALIDATE_CERTS=True
 )
