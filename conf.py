@@ -5,10 +5,11 @@ email_conf = ConnectionConfig(
     MAIL_USERNAME="adebayoinioluwamarvellous1@gmail.com",
     MAIL_PASSWORD="awlm fhmz yvaz awxo",
     MAIL_FROM="adebayoinioluwamarvellous1@gmail.com",
-    MAIL_PORT=587,
+    MAIL_PORT=465,
+    MAIL_FROM_NAME="Mico",
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_SSL_TLS=False,
-    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=True,
+    MAIL_STARTTLS=False,
     USE_CREDENTIALS=True,
     VALIDATE_CERTS=True
 )

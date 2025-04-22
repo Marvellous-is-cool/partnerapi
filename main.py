@@ -1473,6 +1473,7 @@ async def update_delivery_status(
     delivery_id: str,
     rider_id: str = Form(...),
     action: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Endpoint to update delivery status and manage rider interactions.
@@ -1603,6 +1604,32 @@ async def update_delivery_status(
         # Update the delivery in database
         success = update_delivery(delivery_id, update_data)
         
+        # EMAIL NOTIFICATION
+        if success:
+            # Get user and rider for notifications
+            delivery = get_delivery_by_id(delivery_id)
+            user = get_user_by_id(delivery.get("user_id"))
+            rider = get_rider_by_id(rider_id)
+            
+            # Send notification emails
+            if user and user.get("email") and user.get("email_notification", True):
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject=f"Delivery Update: {action}",
+                    recipients=[user["email"]],
+                    body=email_service.delivery_template(action, delivery_id)
+                )
+            
+            if rider and rider.get("email") and rider.get("email_notification", True):
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject=f"Delivery Update: {action}",
+                    recipients=[rider["email"]],
+                    body=email_service.delivery_template(action, delivery_id)
+                )
+        
+        
+        
         if not success:
             print(f"Failed to update delivery {delivery_id} with data: {update_data}")
             raise HTTPException(
@@ -1622,62 +1649,7 @@ async def update_delivery_status(
             status_code=500,
             detail=f"Failed to update delivery status: {str(e)}"
         )
-
-
-
-# Delivery Responses
-@app.put("/delivery/{delivery_id}/status")
-async def update_delivery_status(
-    delivery_id: str,
-    status: str = Form(...),
-    background_tasks: BackgroundTasks = BackgroundTasks()
-):
-    """
-    Endpoint to update the status of a delivery.
-    """
-    #  Get delivery details
-    delivery = get_delivery_by_id(delivery_id)
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Delivery not found")
-    
-    # Update delivery status
-    success = update_delivery(delivery_id, status)
-    
-    if success:
-        # Get user and rider details
-        user = get_user_by_id(delivery["user_id"])
-        rider = get_rider_by_id(delivery["rider_id"])
-        
-        # Send notification to user
-        if user and user.get("email"):
-            background_tasks.add_task(
-                email_service.send_email,
-                subject=f"Delivery Status Update: {status}",
-                recipient=user["email"],
-                body=email_service.delivery_template(status, delivery_id)
-            )
-            
-        # Send notification to rider
-        if rider and rider.get("email") and rider.get("email_notification", True):
-            background_tasks.add_task(
-                email_service.send_email,
-                subject=f"Delivery Status Update: {status}",
-                recipient=rider["email"],
-                body=email_service.delivery_template(status, delivery_id)
-            )
-            
-        return {
-            "status": "success",
-            "message": f"Delivery status updated to {status}",
-            "delivery_id": delivery_id
-        }
-        
-    raise HTTPException(
-        status_code=500,
-        detail="Failed to update delivery status"
-    )
-            
-    
+ 
 class RatingRequest(BaseModel):
     rating: int
     comment: str = None
