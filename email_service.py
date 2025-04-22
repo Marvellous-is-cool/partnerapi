@@ -32,54 +32,70 @@ class EmailService:
             return False
         
     def rider_signup_template(self, firstname: str) -> str:
-        """
-        Generate the email template for rider signup.
-        """
         return f"""
         <html>
-            <body>
-                <h1>Welcome {firstname}!</h1>
-                <p>Thank you for signing up as a rider.</p>
-            </body>
+        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <h2 style="color: #333;">Welcome aboard, {firstname}! 🚀</h2>
+            <p style="font-size: 16px; color: #555;">You're now part of the Mico Delivery team as a rider. We're excited to have you!</p>
+            <p style="font-size: 14px; color: #777;">We'll keep you posted on delivery requests and updates.</p>
+            <hr style="margin: 20px 0;">
+            <p style="font-size: 12px; color: #999;">
+                This email was sent to you because you registered as a rider on the Mico platform. If this wasn't you, you can ignore this message.
+            </p>
+            </div>
+        </body>
         </html>
         """
-        
+ 
     def user_signup_template(self, firstname: str) -> str:
-        """
-        Generate the email template for user signup.
-        """
         return f"""
         <html>
-            <body>
-                <h1>Welcome {firstname}!</h1>
-                <p>Thank you for signing up as a user.</p>
-            </body>
+        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <h2 style="color: #333;">Hi {firstname}, welcome to Mico! 👋</h2>
+            <p style="font-size: 16px; color: #555;">Thanks for signing up as a user. We're glad to have you with us.</p>
+            <p style="font-size: 14px; color: #777;">Start requesting deliveries and track them in real-time anytime!</p>
+            <hr style="margin: 20px 0;">
+            <p style="font-size: 12px; color: #999;">
+                This email was sent to you because you registered as a user on the Mico platform. If this wasn't you, you can ignore this message.
+            </p>
+            </div>
+        </body>
         </html>
         """
-    
+   
     def delivery_template(self, status: str, delivery_id: str) -> str:
-        """
-        Generate the email template for delivery.
-        """
         return f"""
         <html>
-            <body>
-                <h1>Delivery Notification</h1>
-                <p>Your delivery (ID: {delivery_id}) status has been updated to: {status}</p>
-            </body>
+        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <h2 style="color: #333;">📦 Delivery Update</h2>
+            <p style="font-size: 16px; color: #555;">Your delivery with ID <strong>{delivery_id}</strong> has been updated.</p>
+            <p style="font-size: 16px; color: #333;"><strong>Status:</strong> {status.capitalize()}</p>
+            <hr style="margin: 20px 0;">
+            <p style="font-size: 12px; color: #999;">
+                You're receiving this because you are involved in this delivery on Mico. If this isn't relevant to you, you may disregard it.
+            </p>
+            </div>
+        </body>
         </html>
         """
-        
+
+    
     def custom_email_template(self, message: str) -> str:
-        """
-        Generate a template for custom email messages.
-        """
         return f"""
         <html>
-            <body>
-                <div style="padding: 20px; background-color: #f7f7f7;">
-                   <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: white; border-radius: 5px;"> {message} </div>
-                </div>
-            </body>
+        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <div style="font-size: 16px; color: #555;">
+                {message}
+            </div>
+            <hr style="margin: 20px 0;">
+            <p style="font-size: 12px; color: #999;">
+                This email was sent from Mico's platform. If you have questions, reply to this message or contact support.
+            </p>
+            </div>
+        </body>
         </html>
         """
