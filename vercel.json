@@ -1,10 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "main.py": {
-      "excludeFiles": "{__pycache__/**,.cache/**,data/**,notebooks/**,venv/**}"
-    }
-  },
   "builds": [
     {
       "src": "main.py",
