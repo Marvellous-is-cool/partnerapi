@@ -38,11 +38,11 @@ class UserSignup(BaseModel):
     phone: str
 
 class DeliveryStatus(BaseModel):
-    deliverystatus: str = "pending"  # pending, in_progress, completed, cancelled
-    orderstatus: str = "pending"     # pending, accepted, rejected
+    deliverystatus: str = "pending"  
+    orderstatus: str = "pending"     
     riderid: Optional[str] = None
     transactioninfo: Dict[str, Any] = {
-        "status": "pending",         # pending, paid, failed
+        "status": "pending",         
         "payment_method": None,
         "payment_id": None,
         "payment_date": None
@@ -84,9 +84,9 @@ class CreateDeliveryRequest(BaseModel):
 
 
 class TransactionUpdateRequest(BaseModel):
-    transaction_type: Optional[str] = None  # "cash" or "online"
-    payment_status: Optional[str] = None  # "pending", "paid", "failed"
-    payment_reference: Optional[str] = None  # For online payments
+    transaction_type: Optional[str] = None  
+    payment_status: Optional[str] = None  
+    payment_reference: Optional[str] = None  
     payment_date: Optional[datetime] = None
     amount_paid: Optional[float] = None
 

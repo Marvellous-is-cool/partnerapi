@@ -37,9 +37,14 @@ from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
 from database import get_file_by_id  # Add this to your database imports
-from typing import List
+from typing import List, Dict, Any
 from pydantic import BaseModel
 from fastapi.responses import Response
+from firebase_admin import credentials, messaging
+import os
+import firebase_admin
+from onesignal_sdk.client import Client
+from onesignal_sdk.error import OneSignalHTTPError
 
 app = FastAPI()
 
@@ -50,6 +55,19 @@ def read_root():
     Root endpoint to confirm API is running.
     """
     return {"message": "Welcome to the Delivery App API"}
+
+# Initialize the app if not already initialized
+# try:
+#     app = firebase_admin.get_app()
+# except ValueError:
+#     # Initialize the app with credentials
+#     try:
+#         cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+#         app = firebase_admin.initialize_app(cred)
+#     except Exception as e:
+#         print(f"Failed to initialize Firebase Admin SDK: {e}")
+#         app = None
+
 
 
 @app.get("/ping")
@@ -171,7 +189,11 @@ async def rider_signup(
 
 
 @app.post("/ridersignin")
-async def rider_signin(email: str = Form(...), password: str = Form(...)):
+async def rider_signin(
+    email: str = Form(...), 
+    password: str = Form(...),
+    fcm_token: Optional[str] = Form(None)
+):
     """
     Endpoint to handle rider sign-in. Verifies email and password (SHA-256 hash).
     """
@@ -183,7 +205,14 @@ async def rider_signin(email: str = Form(...), password: str = Form(...)):
 
     if rider and rider["password"] == hashed_password:
         # Convert ObjectId to string for serialization
-        rider["_id"] = str(rider["_id"])
+        rider_id = str(rider["_id"])
+        
+        # Update FCM token if provided
+        if fcm_token:
+            update_rider_details_db(rider_id, {"fcm_token": fcm_token})
+            
+        # Return rider data
+        rider["_id"] = rider_id
         return {
             "status": "success",
             "message": "Rider signed in successfully!",
@@ -271,7 +300,11 @@ async def user_signup(
 
 
 @app.post("/usersignin")
-async def user_signin(email: str = Form(...), password: str = Form(...)):
+async def user_signin(
+    email: str = Form(...), 
+    password: str = Form(...),
+    fcm_token: Optional[str] = Form(None)
+):
     """
     Endpoint to handle user sign-in. Verifies email and password (SHA-256 hash).
     """
@@ -283,7 +316,14 @@ async def user_signin(email: str = Form(...), password: str = Form(...)):
 
     if user and user["password"] == hashed_password:
         # Convert ObjectId to string for serialization
-        user["_id"] = str(user["_id"])
+        user_id = str(user["_id"])
+        
+        # Update FCM token if provided
+        if fcm_token:
+            update_user_details_db(user_id, {"fcm_token": fcm_token})
+            
+        # Return user data
+        user["_id"] = user_id
         return {
             "status": "success",
             "message": "User signed in successfully!",
@@ -291,7 +331,6 @@ async def user_signin(email: str = Form(...), password: str = Form(...)):
         }
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-
 
 @app.get("/users/{user_id}")
 def fetch_user_by_id(user_id: str):
@@ -800,6 +839,7 @@ async def get_file(file_id: str):
 
 class ChatMessage(BaseModel):
     message: str
+    timestamp: Optional[str] = None
 
 @app.post("/chat/{delivery_id}/{sender_id}/{receiver_id}")
 async def send_message(
@@ -823,14 +863,47 @@ async def send_message(
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
     
-    # Create the chat message
-    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id)
+    # Use client timestamp if provided, otherwise use server timestamp
+    timestamp = message.timestamp if message.timestamp else datetime.utcnow().isoformat()
+    
+    # Create the chat message with the timestamp
+    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id, timestamp=timestamp)
+    
+    # Send push notification to the receiver using OneSignal
+    try:
+        from utils.push_utils import send_push_notification
+        
+        # Get sender name for the notification
+        sender_name = f"{sender.get('firstname', '')} {sender.get('lastname', '')}"
+        if not sender_name.strip():
+            sender_name = "Someone"
+            
+        # Send the notification
+        notification_title = f"Message from {sender_name}"
+        notification_result = send_push_notification(
+            receiver_id, 
+            message.message, 
+            title=notification_title,
+            data={
+                "type": "chat_message",
+                "delivery_id": delivery_id,
+                "sender_id": sender_id,
+                "chat_id": chat_id
+            }
+        )
+        
+        # Log the notification result
+        if notification_result["status"] == "error":
+            print(f"OneSignal notification error: {notification_result['message']}")
+    except Exception as e:
+        print(f"Error sending OneSignal push notification: {str(e)}")
     
     return {
         "status": "success",
         "message": "Message sent successfully",
         "chat_id": chat_id
     }
+
 
 @app.get("/chat/{delivery_id}")
 async def get_messages(delivery_id: str):
@@ -1499,3 +1572,139 @@ async def update_rider_location(
             status_code=500,
             detail=f"Failed to update rider location: {str(e)}"
         )
+
+
+def send_push_notification(
+    user_id: str, 
+    message: str, 
+    title: str = "New Message", 
+    data: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Send push notification to a user or rider using Firebase Admin SDK.
+    
+    Args:
+        user_id: The ID of the user or rider to send notification to
+        message: The notification message
+        title: The notification title
+        data: Additional data to send with the notification
+        
+    Returns:
+        bool: True if notification was sent successfully, False otherwise
+    """
+    from database import get_user_by_id, get_rider_by_id
+    
+    # If Firebase Admin SDK is not initialized, just log and return
+    if app is None:
+        print(f"[PUSH] Firebase Admin SDK not initialized. Would send notification to {user_id}: {title} - {message}")
+        return False
+    
+    # Get the user or rider to check if they have push notifications enabled
+    # and to get their FCM token
+    user = get_user_by_id(user_id)
+    if not user:
+        user = get_rider_by_id(user_id)
+    
+    if not user:
+        print(f"[PUSH] User/Rider {user_id} not found")
+        return False
+    
+    # Check if user has push notifications enabled
+    if not user.get("push_notification", False):
+        print(f"[PUSH] User/Rider {user_id} has disabled push notifications")
+        return False
+    
+    # Get FCM token - you need to store this when the user logs in from a device
+    fcm_token = user.get("fcm_token")
+    if not fcm_token:
+        print(f"[PUSH] No FCM token found for user/rider {user_id}")
+        return False
+    
+    try:
+        # Create a message
+        message_payload = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=message,
+            ),
+            token=fcm_token,
+        )
+        
+        # Add data payload if provided
+        if data:
+            message_payload.data = data
+        
+        # Send the message
+        response = messaging.send(message_payload)
+        print(f"[PUSH] Successfully sent notification to {user_id}: {response}")
+        return True
+        
+    except Exception as e:
+        print(f"[PUSH] Error sending notification: {str(e)}")
+        return False
+
+@app.post("/test-notification")
+async def test_notification(
+    receiver_id: str = Form(...),
+    title: str = Form("Test Notification"),
+    message: str = Form("This is a test message")
+):
+    """
+    Test endpoint to send a push notification to a specific user or rider using OneSignal.
+    """
+    try:
+        from utils.push_utils import send_push_notification
+        
+        # Send the notification using our utility function
+        result = send_push_notification(
+            receiver_id,
+            message,
+            title=title,
+            data={'type': 'test_notification'}
+        )
+        
+        return result
+            
+    except Exception as e:
+        error_message = f"Unexpected error in test notification: {str(e)}"
+        print(error_message)
+        return {
+            "status": "error",
+            "message": error_message
+        }
+
+@app.post("/register-device")
+async def register_device(
+    user_id: str = Form(...),
+    player_id: str = Form(...),
+    user_type: str = Form(...)  # "user" or "rider"
+):
+    """
+    Register or update a user's OneSignal player ID for push notifications
+    """
+    try:
+        # Determine if this is a user or rider
+        if user_type.lower() == "user":
+            user = get_user_by_id(user_id)
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            # Update the user with the player ID
+            success = update_user_details_db(user_id, {"player_id": player_id})
+        elif user_type.lower() == "rider":
+            rider = get_rider_by_id(user_id)
+            if not rider:
+                return {"status": "error", "message": "Rider not found"}
+            
+            # Update the rider with the player ID
+            success = update_rider_details_db(user_id, {"player_id": player_id})
+        else:
+            return {"status": "error", "message": "Invalid user type. Must be 'user' or 'rider'"}
+        
+        if success:
+            return {"status": "success", "message": f"OneSignal player ID registered for {user_type}"}
+        else:
+            return {"status": "error", "message": f"Failed to update {user_type} record"}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Error registering device: {str(e)}"}
