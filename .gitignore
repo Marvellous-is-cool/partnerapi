@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Virtual environments
+/env
+/.env
+/.venv
+/venv
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# FastAPI specific
+__pycache__/
+*.pyc
+
+# Logs
+logs/
+*.log
+
+# Local configuration
+.local/
+instance/
+
+# Email credentials and secrets
+*auth*.json
+credentials.json
+token.json
+*.pem
+*.key
+
+# Database
+*.sqlite
+*.db
+
+# Project specific (adjust as needed)
+# Add any other files/directories specific to your project
