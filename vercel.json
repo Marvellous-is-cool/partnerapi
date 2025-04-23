@@ -1,10 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/**": {
-      "excludeFiles": "{__pycache__/**,.cache/**}"
-    }
-  },
   "builds": [
     {
       "src": "main.py",
