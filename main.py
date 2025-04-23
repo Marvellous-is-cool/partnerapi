@@ -50,9 +50,36 @@ from utils.email_utils import send_reset_code_email  # Add this import at the to
 from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
-from typing import List
+from typing import List, Dict, Any
 from pydantic import BaseModel, EmailStr
-from fastapi.responses import Response
+from fastapi.responses import Response 
+from firebase_admin import credentials, messaging
+import os
+import firebase_admin
+from onesignal_sdk.client import Client
+from onesignal_sdk.error import OneSignalHTTPError
+
+from fastapi import BackgroundTasks
+from email_service import EmailService
+from fastapi.middleware.cors import CORSMiddleware
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
+
+class ErrorHandlingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": str(e),
+                    "detail": "Internal server error"
+                }
+            )
 
 from fastapi import BackgroundTasks
 from email_service import EmailService
@@ -1371,6 +1398,70 @@ async def get_file(file_id: str):
         raise HTTPException(status_code=404, detail="File not found")
 class ChatMessage(BaseModel):
     message: str
+    timestamp: Optional[str] = None
+
+
+@app.put("/riders/{rider_id}/vehicle-picture")
+async def update_rider_vehicle_picture(
+    rider_id: str,
+    vehicle_picture: UploadFile = File(...)
+):
+    """
+    Endpoint to update or add a rider's vehicle picture.
+    """
+    # Verify rider exists
+    rider = get_rider_by_id(rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    try:
+        # Read the uploaded file
+        vehicle_picture_data = await vehicle_picture.read()
+        
+        # Save the vehicle picture to GridFS and get the file ID
+        from database import save_file_to_gridfs
+        file_id = save_file_to_gridfs(vehicle_picture_data, vehicle_picture.filename)
+        
+        if not file_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save vehicle picture"
+            )
+        
+        # Update the rider's profile with the picture URL and file ID
+        vehicle_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        
+        # Prepare update data
+        update_data = {"vehicle_picture_url": vehicle_picture_url}
+        
+        # Update file_ids collection if it exists
+        existing_file_ids = rider.get("file_ids", {})
+        existing_file_ids["vehicle_picture"] = file_id
+        update_data["file_ids"] = existing_file_ids
+        
+        success = update_rider_details_db(
+            rider_id, 
+            update_data
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update rider profile with vehicle picture URL"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Vehicle picture updated successfully",
+            "vehicle_picture_url": vehicle_picture_url
+        }
+    
+    except Exception as e:
+        print(f"Error updating vehicle picture: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update vehicle picture: {str(e)}"
+        )
 
 
 @app.put("/riders/{rider_id}/vehicle-picture")
@@ -2194,6 +2285,142 @@ async def update_rider_location(
             status_code=500,
             detail=f"Failed to update rider location: {str(e)}"
         )
+
+
+def send_push_notification(
+    user_id: str, 
+    message: str, 
+    title: str = "New Message", 
+    data: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Send push notification to a user or rider using Firebase Admin SDK.
+    
+    Args:
+        user_id: The ID of the user or rider to send notification to
+        message: The notification message
+        title: The notification title
+        data: Additional data to send with the notification
+        
+    Returns:
+        bool: True if notification was sent successfully, False otherwise
+    """
+    from database import get_user_by_id, get_rider_by_id
+    
+    # If Firebase Admin SDK is not initialized, just log and return
+    if app is None:
+        print(f"[PUSH] Firebase Admin SDK not initialized. Would send notification to {user_id}: {title} - {message}")
+        return False
+    
+    # Get the user or rider to check if they have push notifications enabled
+    # and to get their FCM token
+    user = get_user_by_id(user_id)
+    if not user:
+        user = get_rider_by_id(user_id)
+    
+    if not user:
+        print(f"[PUSH] User/Rider {user_id} not found")
+        return False
+    
+    # Check if user has push notifications enabled
+    if not user.get("push_notification", False):
+        print(f"[PUSH] User/Rider {user_id} has disabled push notifications")
+        return False
+    
+    # Get FCM token - you need to store this when the user logs in from a device
+    fcm_token = user.get("fcm_token")
+    if not fcm_token:
+        print(f"[PUSH] No FCM token found for user/rider {user_id}")
+        return False
+    
+    try:
+        # Create a message
+        message_payload = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=message,
+            ),
+            token=fcm_token,
+        )
+        
+        # Add data payload if provided
+        if data:
+            message_payload.data = data
+        
+        # Send the message
+        response = messaging.send(message_payload)
+        print(f"[PUSH] Successfully sent notification to {user_id}: {response}")
+        return True
+        
+    except Exception as e:
+        print(f"[PUSH] Error sending notification: {str(e)}")
+        return False
+
+@app.post("/test-notification")
+async def test_notification(
+    receiver_id: str = Form(...),
+    title: str = Form("Test Notification"),
+    message: str = Form("This is a test message")
+):
+    """
+    Test endpoint to send a push notification to a specific user or rider using OneSignal.
+    """
+    try:
+        from utils.push_utils import send_push_notification
+        
+        # Send the notification using our utility function
+        result = send_push_notification(
+            receiver_id,
+            message,
+            title=title,
+            data={'type': 'test_notification'}
+        )
+        
+        return result
+            
+    except Exception as e:
+        error_message = f"Unexpected error in test notification: {str(e)}"
+        print(error_message)
+        return {
+            "status": "error",
+            "message": error_message
+        }
+
+@app.post("/register-device")
+async def register_device(
+    user_id: str = Form(...),
+    player_id: str = Form(...),
+    user_type: str = Form(...)  # "user" or "rider"
+):
+    """
+    Register or update a user's OneSignal player ID for push notifications
+    """
+    try:
+        # Determine if this is a user or rider
+        if user_type.lower() == "user":
+            user = get_user_by_id(user_id)
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            # Update the user with the player ID
+            success = update_user_details_db(user_id, {"player_id": player_id})
+        elif user_type.lower() == "rider":
+            rider = get_rider_by_id(user_id)
+            if not rider:
+                return {"status": "error", "message": "Rider not found"}
+            
+            # Update the rider with the player ID
+            success = update_rider_details_db(user_id, {"player_id": player_id})
+        else:
+            return {"status": "error", "message": "Invalid user type. Must be 'user' or 'rider'"}
+        
+        if success:
+            return {"status": "success", "message": f"OneSignal player ID registered for {user_type}"}
+        else:
+            return {"status": "error", "message": f"Failed to update {user_type} record"}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Error registering device: {str(e)}"}
         
 @app.get("/deliveries/{delivery_id}/rider-location")
 async def get_delivery_location(delivery_id: str):

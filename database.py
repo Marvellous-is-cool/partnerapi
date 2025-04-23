@@ -42,8 +42,7 @@ def insert_rider(rider_data, nationalid_file, facial_picture, utility_bill, bike
         "bike_papers": str(bike_papers_id),
         "riders_license": str(riders_license_id),
     }
-
-    # Set the facial_picture_url directly
+ 
     rider_data["facial_picture_url"] = f"https://deliveryapi-ten.vercel.app/files/{str(facial_picture_id)}"
 
     rider_id = riders_collection.insert_one(rider_data).inserted_id
