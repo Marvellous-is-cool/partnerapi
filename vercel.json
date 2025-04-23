@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "api/**": {
-      "excludeFiles": ["__pycache__/**", ".cache/**"]
+      "excludeFiles": "{__pycache__/**,.cache/**}"
     }
   },
   "builds": [
