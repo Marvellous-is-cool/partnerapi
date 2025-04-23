@@ -117,6 +117,19 @@ def read_root():
     """
     return {"message": "Welcome to the Delivery App API"}
 
+# Initialize the app if not already initialized
+# try:
+#     app = firebase_admin.get_app()
+# except ValueError:
+#     # Initialize the app with credentials
+#     try:
+#         cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+#         app = firebase_admin.initialize_app(cred)
+#     except Exception as e:
+#         print(f"Failed to initialize Firebase Admin SDK: {e}")
+#         app = None
+
+
 
 @app.get("/ping")
 def test_database_connection():
@@ -248,7 +261,11 @@ async def rider_signup(
 
 
 @app.post("/ridersignin")
-async def rider_signin(email: str = Form(...), password: str = Form(...)):
+async def rider_signin(
+    email: str = Form(...), 
+    password: str = Form(...),
+    fcm_token: Optional[str] = Form(None)
+):
     """
     Endpoint to handle rider sign-in. Verifies email and password (SHA-256 hash).
     """
@@ -260,7 +277,14 @@ async def rider_signin(email: str = Form(...), password: str = Form(...)):
 
     if rider and rider["password"] == hashed_password:
         # Convert ObjectId to string for serialization
-        rider["_id"] = str(rider["_id"])
+        rider_id = str(rider["_id"])
+        
+        # Update FCM token if provided
+        if fcm_token:
+            update_rider_details_db(rider_id, {"fcm_token": fcm_token})
+            
+        # Return rider data
+        rider["_id"] = rider_id
         return {
             "status": "success",
             "message": "Rider signed in successfully!",
@@ -379,7 +403,11 @@ async def user_signup(
 
 
 @app.post("/usersignin")
-async def user_signin(email: str = Form(...), password: str = Form(...)):
+async def user_signin(
+    email: str = Form(...), 
+    password: str = Form(...),
+    fcm_token: Optional[str] = Form(None)
+):
     """
     Endpoint to handle user sign-in. Verifies email and password (SHA-256 hash).
     """
@@ -391,7 +419,14 @@ async def user_signin(email: str = Form(...), password: str = Form(...)):
 
     if user and user["password"] == hashed_password:
         # Convert ObjectId to string for serialization
-        user["_id"] = str(user["_id"])
+        user_id = str(user["_id"])
+        
+        # Update FCM token if provided
+        if fcm_token:
+            update_user_details_db(user_id, {"fcm_token": fcm_token})
+            
+        # Return user data
+        user["_id"] = user_id
         return {
             "status": "success",
             "message": "User signed in successfully!",
@@ -399,7 +434,6 @@ async def user_signin(email: str = Form(...), password: str = Form(...)):
         }
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-
 
 @app.get("/users/{user_id}")
 def fetch_user_by_id(user_id: str):
@@ -1423,14 +1457,47 @@ async def send_message(
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
     
-    # Create the chat message
-    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id)
+    # Use client timestamp if provided, otherwise use server timestamp
+    timestamp = message.timestamp if message.timestamp else datetime.utcnow().isoformat()
+    
+    # Create the chat message with the timestamp
+    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id, timestamp=timestamp)
+    
+    # Send push notification to the receiver using OneSignal
+    try:
+        from utils.push_utils import send_push_notification
+        
+        # Get sender name for the notification
+        sender_name = f"{sender.get('firstname', '')} {sender.get('lastname', '')}"
+        if not sender_name.strip():
+            sender_name = "Someone"
+            
+        # Send the notification
+        notification_title = f"Message from {sender_name}"
+        notification_result = send_push_notification(
+            receiver_id, 
+            message.message, 
+            title=notification_title,
+            data={
+                "type": "chat_message",
+                "delivery_id": delivery_id,
+                "sender_id": sender_id,
+                "chat_id": chat_id
+            }
+        )
+        
+        # Log the notification result
+        if notification_result["status"] == "error":
+            print(f"OneSignal notification error: {notification_result['message']}")
+    except Exception as e:
+        print(f"Error sending OneSignal push notification: {str(e)}")
     
     return {
         "status": "success",
         "message": "Message sent successfully",
         "chat_id": chat_id
     }
+
 
 @app.get("/chat/{delivery_id}")
 async def get_messages(delivery_id: str):

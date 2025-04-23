@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "731103274391",
+    "project_id": "deliveryapp-af463",
+    "storage_bucket": "deliveryapp-af463.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:731103274391:android:da214dbf393e3efd0050d2",
+        "android_client_info": {
+          "package_name": "com.micotech.mico_rider"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCA5I5BVzPY7mT3lII8rviFL7p4a13Jpag"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
