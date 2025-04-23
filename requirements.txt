@@ -41,5 +41,9 @@ email-validator==2.2.0
 typing-extensions==4.12.2
 # Development tools
 httptools==0.6.4
+# Firebase
+firebase-admin==6.5.0
+# OneSignal SDK
+onesignal-sdk==2.0.0
 # # Optional but recommended for production
 # gunicorn==21.2.0
