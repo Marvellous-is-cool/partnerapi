@@ -38,7 +38,8 @@ from database import (
     delete_user_by_id,
     delete_selected_riders,
     delete_selected_users,
-    delete_all_deliveries
+    delete_all_deliveries,
+    get_file_by_id 
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -49,7 +50,6 @@ from utils.email_utils import send_reset_code_email  # Add this import at the to
 from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
-from database import get_file_by_id  # Add this to your database imports
 from typing import List
 from pydantic import BaseModel, EmailStr
 from fastapi.responses import Response
@@ -2483,3 +2483,5 @@ async def send_custom_email(email_data: EmailRequest):
             status_code=500,
             detail=f"Failed to send email: {str(e)}"
         )
+        
+# 
