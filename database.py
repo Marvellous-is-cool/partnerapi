@@ -9,6 +9,7 @@ MONGO_URI = (
     "mongodb+srv://primidac:teststring123###@micodelivery.mqfic.mongodb.net/"
     "?retryWrites=true&w=majority&appName=micodelivery"
 )  
+
 DATABASE_NAME = "delivery_app_db"
 
 client = MongoClient(MONGO_URI)
