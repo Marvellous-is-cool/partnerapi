@@ -1,10 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "main.py": {
-      "excludeFiles": "{__pycache__/**,.cache/**,data/**,notebooks/**,venv/**,env/**,*.pyc,*.pyo,*.pyd,*.db,*.sqlite3,*.log,*.csv,*.tsv,*.json,*.yaml,*.yml}"
-    }
-  },
   "builds": [
     {
       "src": "main.py",

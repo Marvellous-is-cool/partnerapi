@@ -1,0 +1,17 @@
+__pycache__/
+.cache/
+data/
+notebooks/
+venv/
+env/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.csv
+*.tsv
+*.json
+*.yaml
+*.yml
