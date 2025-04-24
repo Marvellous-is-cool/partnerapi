@@ -296,7 +296,6 @@ async def rider_signup(
 async def rider_signin(
     email: str = Form(...), 
     password: str = Form(...),
-    fcm_token: Optional[str] = Form(None)
 ):
     """
     Endpoint to handle rider sign-in. Verifies email and password (SHA-256 hash).
@@ -311,9 +310,6 @@ async def rider_signin(
         # Convert ObjectId to string for serialization
         rider_id = str(rider["_id"])
         
-        # Update FCM token if provided
-        if fcm_token:
-            update_rider_details_db(rider_id, {"fcm_token": fcm_token})
             
         # Return rider data
         rider["_id"] = rider_id
