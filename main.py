@@ -53,9 +53,7 @@ from fastapi.responses import StreamingResponse
 from typing import List, Dict, Any, Dict, Any
 from pydantic import BaseModel, EmailStr
 from fastapi.responses import Response 
-from firebase_admin import credentials, messaging
 import os
-import firebase_admin
 from onesignal_sdk.client import Client
 from onesignal_sdk.error import OneSignalHTTPError
 
