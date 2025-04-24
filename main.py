@@ -100,11 +100,9 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "detail": "Internal server error"
                 }
             )
-from firebase_admin import credentials, messaging
-import os
-import firebase_admin
-from onesignal_sdk.client import Client
-from onesignal_sdk.error import OneSignalHTTPError
+# import os
+# from onesignal_sdk.client import Client
+# from onesignal_sdk.error import OneSignalHTTPError
 
 app = FastAPI()
 
