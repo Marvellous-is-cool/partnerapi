@@ -41,17 +41,18 @@ class EmailService:
             <p style="font-size: 14px; color: #777;">We'll keep you posted on delivery requests and updates.</p>
             <hr style="margin: 20px 0;">
             <p style="font-size: 14px; color: #777;">Once again we appreciate your interest in being a part of MICO Delivery.</p>
-<p style="font-size: 14px; color: #777;">Our customers app is currently live on playstore and apple store and customers are downloading the app.</p>
- <p style="font-size: 14px; color: #777;">We are still utilizing our marketing advertisement to ensure we have many customers download our app so you'd always have delivery orders on the app.</p>
-<p style="font-size: 14px; color: #777;">Most importantly, as one of our financial policies, you are expected to remit all payments due to MICO from all successful delivery orders carried out on or before 12pm daily. All payments are to be sent to;</p>
-<code>MICO DELIVERY LTD
-<br />
-MONIEPOINT
-<br />
-8029323758</code>
-<br />
-<p style="font-size: 14px; color: #777;">Thank you for choosing MICO
-<br />MICO Delivery Team </p>
+            <p style="font-size: 14px; color: #777;">Our customers app is currently live on playstore and apple store and customers are downloading the app.</p>
+            <p style="font-size: 14px; color: #777;">We are still utilizing our marketing advertisement to ensure we have many customers download our app so you'd always have delivery orders on the app.</p>
+            <p style="font-size: 14px; color: #777;">Most importantly, as one of our financial policies, you are expected to remit all payments due to MICO from all successful delivery orders carried out on or before 12pm daily. All payments are to be sent to;</p>
+            <br />
+            <p>MICO DELIVERY LTD
+            <br />
+            MONIEPOINT
+            <br />
+            8029323758</p>
+            <br />
+            <p style="font-size: 14px; color: #777;">Thank you for choosing MICO
+            <br />MICO Delivery Team </p>
             <p style="font-size: 12px; color: #999;">
                 This email was sent to you because you registered as a rider on the Mico platform. If this wasn't you, you can ignore this message.
             </p>
