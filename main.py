@@ -1,5 +1,7 @@
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
+import firebase_admin
+from firebase_admin import messaging, credentials
 from database import (
     get_all_deliveries,
     get_delivery_by_id,
@@ -39,14 +41,16 @@ from database import (
     delete_selected_riders,
     delete_selected_users,
     delete_all_deliveries,
-    get_file_by_id 
+    get_file_by_id,
+    get_user_by_id, 
+    get_rider_by_id
 )
 import hashlib
 from fastapi import BackgroundTasks
 import random
 import string
 from datetime import datetime, timedelta
-from utils.email_utils import send_reset_code_email  # Add this import at the top
+from utils.email_utils import send_reset_code_email 
 from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
@@ -1784,9 +1788,42 @@ async def update_delivery_status(
                     recipients=[rider["email"]],
                     body=email_service.delivery_template(action, delivery_id)
                 )
-        
-        
-        
+                
+            # PUSH NOTIFICATION
+            try:
+                # check if user has push notifications enabled
+                if user and user.get("push_notification", True):
+                    send_push_notification(
+                        user_id=delivery.get("user_id"),
+                        message=f"Your delivery status has been updated to {action}",
+                        title="Delivery Status Update",
+                        data={
+                            "type": "delivery_update",
+                            "delivery_id": delivery_id,
+                            "status": action
+                        }
+                    )
+                    
+                # check if rider has push notifications enabled
+                if rider and rider.get("push_notification", True):
+                    send_push_notification(
+                        user_id=delivery.get("rider_id"),
+                        message=f"Your delivery status has been updated to {action}",
+                        title="Delivery Status Update",
+                        data={
+                            "type": "delivery_update",
+                            "delivery_id": delivery_id,
+                            "status": action 
+                        }
+                    )
+            except Exception as e:
+                print(f"Error sending push notification: {str(e)}")
+        # Check if the update was successful but log errors without disrupting flow
+        if not success:
+            print(f"Warning: Failed to update delivery {delivery_id} with {action} action.")
+            print(f"Update data: {update_data}")
+                
+            
         if not success:
             print(f"Failed to update delivery {delivery_id} with data: {update_data}")
             raise HTTPException(
@@ -2729,7 +2766,6 @@ def send_push_notification(
     Returns:
         bool: True if notification was sent successfully, False otherwise
     """
-    from database import get_user_by_id, get_rider_by_id
     
     # If Firebase Admin SDK is not initialized, just log and return
     if app is None:
@@ -2779,6 +2815,8 @@ def send_push_notification(
     except Exception as e:
         print(f"[PUSH] Error sending notification: {str(e)}")
         return False
+
+
 
 @app.post("/test-notification")
 async def test_notification(
