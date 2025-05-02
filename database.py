@@ -336,11 +336,14 @@ def create_chat(sender_id, receiver_id, message, delivery_id, timestamp=None):
 
 def get_chat_history(delivery_id: str):
     """
+    Get chat history for a specific delivery.
     """
     chats = list(chat_collection.find({"delivery_id": delivery_id}).sort("timestamp", 1))
     for chat in chats:
         chat["_id"] = str(chat["_id"])
-        chat["timestamp"] = chat["timestamp"].isoformat()
+        if "timestamp" in chat:
+            if isinstance(chat["timestamp"], datetime):
+                chat["timestamp"] = chat["timestamp"].isoformat()
     return chats
 
 def mark_messages_as_read(receiver_id: str, delivery_id: str):

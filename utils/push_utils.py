@@ -2,10 +2,15 @@ from onesignal_sdk.client import Client
 from onesignal_sdk.error import OneSignalHTTPError
 from typing import Dict, Any, Optional
 import logging
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # OneSignal configuration
-ONESIGNAL_APP_ID = "09090e62-359f-42ff-a7c7-679ca74e78a7" 
-ONESIGNAL_REST_API_KEY = "os_v2_app_beeq4yrvt5bp7j6hm6okottyu5t57k5ua7cuf2uy7cyize2bsqtmpl3qwwd2oyh3xbf3d227kfmtba47moblcpttcfovcddcxbdymkq" 
+ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID")
+ONESIGNAL_REST_API_KEY = os.getenv("ONESIGNAL_REST_API_KEY")
 
 # Initialize the OneSignal client
 onesignal_client = Client(app_id=ONESIGNAL_APP_ID, rest_api_key=ONESIGNAL_REST_API_KEY)
