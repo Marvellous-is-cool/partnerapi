@@ -43,7 +43,8 @@ from database import (
     delete_all_deliveries,
     get_file_by_id,
     get_user_by_id, 
-    get_rider_by_id
+    get_rider_by_id,
+    riders_collection
 )
 import hashlib
 from fastapi import BackgroundTasks
@@ -51,6 +52,7 @@ import random
 import string
 from datetime import datetime, timedelta
 from utils.email_utils import send_reset_code_email 
+from utils.push_utils import send_push_notification
 from schemas.delivery_schema import BikeDeliveryRequest, CarDeliveryRequest
 from typing import Optional
 from fastapi.responses import StreamingResponse
@@ -1270,6 +1272,59 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
     # Insert the delivery data into the database
     delivery_id = insert_delivery(delivery_data)
     
+    # Send notifications if delivery was created successfully
+    if delivery_id:
+        try:
+            # Get user info for notifications
+            user = get_user_by_id(request.user_id)
+            
+            if user:
+                # 1. PUSH NOTIFICATION TO USER
+                if user.get("push_notification", True):
+                    try:
+                        send_push_notification(
+                            user_id=request.user_id,
+                            message=f"Your {request.vehicletype.lower()} delivery has been created and riders are being notified",
+                            title="New Delivery Created",
+                            data={
+                                "type": "new_delivery",
+                                "delivery_id": delivery_id,
+                                "vehicle_type": request.vehicletype.lower(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error sending push notification to user: {str(e)}")
+                
+                # 2. NOTIFY AVAILABLE RIDERS (with matching vehicle type)
+                try:
+                    # Get all active riders with matching vehicle type
+                    matching_riders = list(riders_collection.find({
+                        "status": "active",
+                        "vehicle_type": request.vehicletype.lower(),
+                        "push_notification": True
+                    }))
+                    
+                    # Send push notification to each matching rider
+                    for rider in matching_riders:
+                        rider_id = str(rider["_id"])
+                        send_push_notification(
+                            user_id=rider_id,
+                            message=f"New {request.vehicletype.lower()} delivery available! Price: ${request.price} - Distance: {request.distance} km",
+                            title="New Delivery Available",
+                            data={
+                                "type": "new_delivery_opportunity",
+                                "delivery_id": delivery_id,
+                                "price": request.price,
+                                "vehicle_type": request.vehicletype.lower(),
+                                "distance": request.distance,
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error notifying riders: {str(e)}")
+                    
+        except Exception as e:
+            print(f"Error sending delivery notifications: {str(e)}")
+    
     return {
         "status": "success",
         "message": "Bike delivery created successfully!",
@@ -1318,6 +1373,59 @@ async def create_car_delivery(request: CarDeliveryRequest):
     
     # Insert the delivery data into the database
     delivery_id = insert_delivery(delivery_data)
+    
+    # Send notifications if delivery was created successfully
+    if delivery_id:
+        try:
+            # Get user info for notifications
+            user = get_user_by_id(request.user_id)
+            
+            if user:
+                # 1. PUSH NOTIFICATION TO USER
+                if user.get("push_notification", True):
+                    try:
+                        send_push_notification(
+                            user_id=request.user_id,
+                            message=f"Your {request.vehicletype.lower()} delivery has been created and riders are being notified",
+                            title="New Delivery Created",
+                            data={
+                                "type": "new_delivery",
+                                "delivery_id": delivery_id,
+                                "vehicle_type": request.vehicletype.lower(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error sending push notification to user: {str(e)}")
+                
+                # 2. NOTIFY AVAILABLE RIDERS (with matching vehicle type)
+                try:
+                    # Get all active riders with matching vehicle type
+                    matching_riders = list(riders_collection.find({
+                        "status": "active",
+                        "vehicle_type": request.vehicletype.lower(),
+                        "push_notification": True
+                    }))
+                    
+                    # Send push notification to each matching rider
+                    for rider in matching_riders:
+                        rider_id = str(rider["_id"])
+                        send_push_notification(
+                            user_id=rider_id,
+                            message=f"New {request.vehicletype.lower()} delivery available! Price: ${request.price} - Distance: {request.distance} km",
+                            title="New Delivery Available",
+                            data={
+                                "type": "new_delivery_opportunity",
+                                "delivery_id": delivery_id,
+                                "price": request.price,
+                                "vehicle_type": request.vehicletype.lower(),
+                                "distance": request.distance,
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error notifying riders: {str(e)}")
+                    
+        except Exception as e:
+            print(f"Error sending delivery notifications: {str(e)}")
     
     return {
         "status": "success",
@@ -1368,6 +1476,59 @@ async def create_car_delivery(request: CarDeliveryRequest):
     # Insert the delivery data into the database
     delivery_id = insert_delivery(delivery_data)
     
+    # Send notifications if delivery was created successfully
+    if delivery_id:
+        try:
+            # Get user info for notifications
+            user = get_user_by_id(request.user_id)
+            
+            if user:
+                # 1. PUSH NOTIFICATION TO USER
+                if user.get("push_notification", True):
+                    try:
+                        send_push_notification(
+                            user_id=request.user_id,
+                            message=f"Your {request.vehicletype.lower()} delivery has been created and riders are being notified",
+                            title="New Delivery Created",
+                            data={
+                                "type": "new_delivery",
+                                "delivery_id": delivery_id,
+                                "vehicle_type": request.vehicletype.lower(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error sending push notification to user: {str(e)}")
+                
+                # 2. NOTIFY AVAILABLE RIDERS (with matching vehicle type)
+                try:
+                    # Get all active riders with matching vehicle type
+                    matching_riders = list(riders_collection.find({
+                        "status": "active",
+                        "vehicle_type": request.vehicletype.lower(),
+                        "push_notification": True
+                    }))
+                    
+                    # Send push notification to each matching rider
+                    for rider in matching_riders:
+                        rider_id = str(rider["_id"])
+                        send_push_notification(
+                            user_id=rider_id,
+                            message=f"New {request.vehicletype.lower()} delivery available! Price: ${request.price} - Distance: {request.distance} km",
+                            title="New Delivery Available",
+                            data={
+                                "type": "new_delivery_opportunity",
+                                "delivery_id": delivery_id,
+                                "price": request.price,
+                                "vehicle_type": request.vehicletype.lower(),
+                                "distance": request.distance,
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error notifying riders: {str(e)}")
+                    
+        except Exception as e:
+            print(f"Error sending delivery notifications: {str(e)}")
+    
     return {
         "status": "success",
         "message": "Bus / Truck delivery created successfully!",
@@ -1397,7 +1558,6 @@ async def get_file(file_id: str):
     except Exception as e:
         print(f"Error retrieving file: {e}")
         raise HTTPException(status_code=404, detail="File not found")
-
 
 
 @app.put("/riders/{rider_id}/vehicle-picture")

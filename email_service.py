@@ -77,6 +77,8 @@ class EmailService:
         </body>
         </html>
         """
+
+
    
     def delivery_template(self, status: str, delivery_id: str) -> str:
         return f"""
