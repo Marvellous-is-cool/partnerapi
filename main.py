@@ -1,6 +1,5 @@
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Body
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
-import firebase_admin
 from firebase_admin import messaging, credentials
 from database import (
     get_all_deliveries,
@@ -248,7 +247,12 @@ async def rider_signup(
         "earnings": 0,
         "status": "inactive",
         "date_joined": datetime.now(),
-        "facial_picture_url": None  # This will be updated after file upload
+        "facial_picture_url": None,  # This will be updated after file upload
+        "is_online": False,
+        "last_online": None,
+        "last_offline": datetime.now(),
+        "last_activity": datetime.now(),
+        "current_location": None
     }
 
     # Read the uploaded files
@@ -352,6 +356,150 @@ def fetch_all_riders():
     """
     riders = get_all_riders()
     return {"status": "success", "riders": riders}
+
+
+# update rider online status
+@app.put("/riders/{rider_id}/online-status")
+async def update_rider_online_status(
+    rider_id: str,  
+    online: bool = Body(...),
+):
+    """
+    Endpoint to update rider's online status.
+    """
+    # Get the rider first
+    rider = get_rider_by_id(rider_id)
+    
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Verify rider account is active
+    if rider.get("status") != "active":
+        raise HTTPException(status_code=403, detail="Rider account is not active, can't update status")
+    
+    # prepare update data
+    update_online_data = {
+        "is_online": online,
+        "last_online": datetime.now() if online else None,
+        "last_offline": datetime.now() if not online else None,
+        "last_activity": datetime.now()
+    }
+    
+    # Update rider online status in database
+    success = update_rider_details_db(rider_id, update_online_data)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update rider online status")
+    
+    return {
+        "status": "success",
+        "message": f"Rider is now {'online' if online else 'offline'}",
+        "rider_id": rider_id,
+        "online": online
+    }
+
+# check rider online status
+@app.get("/riders/{rider_id}/online-status")
+async def check_rider_online_status(
+    rider_id: str,
+):
+    """
+    Endpoint to check rider's online status.
+    """
+    # Get the rider first
+    rider = get_rider_by_id(rider_id)
+    
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    
+    # Verify rider account is active
+    if rider.get("status") != "active":
+        raise HTTPException(
+            status_code=403, 
+            detail="Account is not active. Rider is not available for delivery"
+        )
+    
+    return {
+        "status": "success",
+        "rider_id": rider_id,
+        "is_online": rider.get("is_online", False),
+        "last_online": rider.get("last_online"),
+        "last_offline": rider.get("last_offline"),
+        "last_activity": rider.get("last_activity"),
+        "current_location": rider.get("current_location")
+    }
+
+# get all online riders
+@app.get("/riders/online")
+async def get_all_online_riders(
+    vehicle_type: Optional[str] = None,
+    max_distance_km: Optional[float] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+):
+    """
+    Endpoint to get all online riders.
+    Optionally filter by vehicle type and distance from a given location.
+    """
+    
+    # Base query to get all online and active riders
+    query = {
+        "is_online": True,
+        "status": "active"
+    }
+    
+    # filter by vehicle type if provided
+    if vehicle_type:
+        query["vehicle_type"] = vehicle_type.lower()
+        
+    # Get all matching riders
+    online_riders = list(riders_collection.find(query))
+    
+    # Convert ObjectId to string for all riders
+    for rider in online_riders:
+        rider["_id"] = str(rider["_id"])
+    
+    # Filter by distance if location parameters are provided
+    if max_distance_km and latitude is not None and longitude is not None:
+        filtered_riders = []
+        for rider in online_riders:
+            rider_location = rider.get("current_location", {})
+            if rider_location and "latitude" in rider_location and "longitude" in rider_location:
+                # Calculate distance using Haversine formula
+                distance = calculate_distance(
+                    latitude, longitude,
+                    rider_location["latitude"], rider_location["longitude"]
+                )
+                if distance <= max_distance_km:
+                    rider["distance_km"] = round(distance, 2)
+                    filtered_riders.append(rider)
+        online_riders = filtered_riders
+    
+    return {
+        "status": "success",
+        "count": len(online_riders),
+        "riders": online_riders
+    }
+
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the distance between two points using the Haversine formula.
+    Returns distance in kilometers.
+    """
+    from math import radians, sin, cos, sqrt, atan2
+    
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    radius = 6371  # Radius of Earth in kilometers
+    
+    return radius * c
 
 # delete rider by id
 @app.delete("/riders/{rider_id}/delete")
