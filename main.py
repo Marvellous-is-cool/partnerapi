@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Body
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Query
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from firebase_admin import messaging, credentials
 from database import (
@@ -362,7 +362,7 @@ def fetch_all_riders():
 @app.put("/riders/{rider_id}/online-status")
 async def update_rider_online_status(
     rider_id: str,  
-    online: bool = Body(...),
+    online: bool = Query(...),
 ):
     """
     Endpoint to update rider's online status.
