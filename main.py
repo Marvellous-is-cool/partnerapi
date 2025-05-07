@@ -2074,7 +2074,7 @@ async def update_delivery_status(
         success = update_delivery(delivery_id, update_data)
         
         # EMAIL NOTIFICATION
-        if success:
+        if success and action != 'reject':
             # Get user and rider for notifications
             delivery = get_delivery_by_id(delivery_id)
             user = get_user_by_id(delivery.get("user_id"))
@@ -2115,7 +2115,7 @@ async def update_delivery_status(
                 # check if rider has push notifications enabled
                 if rider and rider.get("push_notification", True):
                     send_push_notification(
-                        user_id=delivery.get("rider_id"),
+                        user_id=rider_id,
                         message=f"Your delivery status has been updated to {action}",
                         title="Delivery Status Update",
                         data={
@@ -2126,6 +2126,8 @@ async def update_delivery_status(
                     )
             except Exception as e:
                 print(f"Error sending push notification: {str(e)}")
+                
+                
         # Check if the update was successful but log errors without disrupting flow
         if not success:
             print(f"Warning: Failed to update delivery {delivery_id} with {action} action.")
