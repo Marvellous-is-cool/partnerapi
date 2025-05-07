@@ -328,36 +328,6 @@ async def rider_signin(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
-@app.get("/riders/{rider_id}")
-def fetch_rider_by_id(rider_id: str):
-    """
-    Endpoint to fetch rider's data by their ID.
-    """
-    rider = get_rider_by_id(rider_id)
-
-    if rider:
-        # Convert ObjectId to string for serialization
-        rider["_id"] = str(rider["_id"])
-        
-        # Add facial picture URL if file_ids exist
-        if "file_ids" in rider and rider["file_ids"].get("recent_facial_picture"):
-            facial_pic_id = rider["file_ids"]["recent_facial_picture"]
-            rider["facial_picture_url"] = f"https://deliveryapi-ten.vercel.app/files/{facial_pic_id}"
-        
-        return {"status": "success", "rider": rider}
-    else:
-        raise HTTPException(status_code=404, detail="Rider not found")
-
-
-@app.get("/riders")
-def fetch_all_riders():
-    """
-    Endpoint to fetch all riders' data.
-    """
-    riders = get_all_riders()
-    return {"status": "success", "riders": riders}
-
-
 # update rider online status
 @app.put("/riders/{rider_id}/online-status")
 async def update_rider_online_status(
@@ -429,6 +399,26 @@ async def check_rider_online_status(
         "current_location": rider.get("current_location")
     }
 
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the distance between two points using the Haversine formula.
+    Returns distance in kilometers.
+    """
+    from math import radians, sin, cos, sqrt, atan2
+    
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    radius = 6371  # Radius of Earth in kilometers
+    
+    return radius * c
+
+
 # get all online riders
 @app.get("/riders/online")
 async def get_all_online_riders(
@@ -482,24 +472,34 @@ async def get_all_online_riders(
     }
 
 
-def calculate_distance(lat1, lon1, lat2, lon2):
+@app.get("/riders/{rider_id}")
+def fetch_rider_by_id(rider_id: str):
     """
-    Calculate the distance between two points using the Haversine formula.
-    Returns distance in kilometers.
+    Endpoint to fetch rider's data by their ID.
     """
-    from math import radians, sin, cos, sqrt, atan2
-    
-    # Convert latitude and longitude from degrees to radians
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-    
-    # Haversine formula
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1-a))
-    radius = 6371  # Radius of Earth in kilometers
-    
-    return radius * c
+    rider = get_rider_by_id(rider_id)
+
+    if rider:
+        # Convert ObjectId to string for serialization
+        rider["_id"] = str(rider["_id"])
+        
+        # Add facial picture URL if file_ids exist
+        if "file_ids" in rider and rider["file_ids"].get("recent_facial_picture"):
+            facial_pic_id = rider["file_ids"]["recent_facial_picture"]
+            rider["facial_picture_url"] = f"https://deliveryapi-ten.vercel.app/files/{facial_pic_id}"
+        
+        return {"status": "success", "rider": rider}
+    else:
+        raise HTTPException(status_code=404, detail="Rider not found")
+
+
+@app.get("/riders")
+def fetch_all_riders():
+    """
+    Endpoint to fetch all riders' data.
+    """
+    riders = get_all_riders()
+    return {"status": "success", "riders": riders}
 
 # delete rider by id
 @app.delete("/riders/{rider_id}/delete")
