@@ -6,6 +6,7 @@ from database import (
     get_delivery_by_id,
     get_rider_by_email,
     get_rider_by_phone,
+    get_user_by_phone,
     insert_delivery,
     insert_rider,
     ping_database,
@@ -541,10 +542,10 @@ async def user_signup(
     Endpoint to handle user signup.
     """
     # Check if email already exists
-    existing_user = get_user_by_email(email)
+    existing_user = get_user_by_phone(phone)
     if existing_user:
         raise HTTPException(
-            status_code=400, detail="A user with this email already exists."
+            status_code=400, detail="A user with this phone number already exists."
         )
 
     # Hash the password using SHA-256
@@ -583,18 +584,18 @@ async def user_signup(
 
 @app.post("/usersignin")
 async def user_signin(
-    email: str = Form(...), 
+    phone: str = Form(...), 
     password: str = Form(...),
     fcm_token: Optional[str] = Form(None)
 ):
     """
-    Endpoint to handle user sign-in. Verifies email and password (SHA-256 hash).
+    Endpoint to handle user sign-in. Verifies phone and password (SHA-256 hash).
     """
     # Hash the password for comparison
     hashed_password = hash_password_sha256(password)
 
     # Find the user in the database
-    user = get_user_by_email(email)
+    user = get_user_by_phone(phone)
 
     if user and user["password"] == hashed_password:
         # Convert ObjectId to string for serialization

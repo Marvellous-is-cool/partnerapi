@@ -116,6 +116,11 @@ def get_user_by_email(email: str):
     """
     return users_collection.find_one({"email": email})
 
+def get_user_by_phone(phone: str):
+    """
+    """
+    return users_collection.find_one({"phone": phone})
+
 
 def get_user_by_id(user_id: str):
     """
