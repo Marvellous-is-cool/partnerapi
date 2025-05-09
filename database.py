@@ -56,6 +56,11 @@ def get_rider_by_email(email: str):
     """
     return riders_collection.find_one({"email": email})
 
+def get_rider_by_phone(phone: str):
+    """
+    """
+    return riders_collection.find_one({"phone": phone})
+
 
 def get_rider_by_id(rider_id: str):
     """

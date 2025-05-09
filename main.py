@@ -5,6 +5,7 @@ from database import (
     get_all_deliveries,
     get_delivery_by_id,
     get_rider_by_email,
+    get_rider_by_phone,
     insert_delivery,
     insert_rider,
     ping_database,
@@ -300,17 +301,17 @@ async def rider_signup(
 
 @app.post("/ridersignin")
 async def rider_signin(
-    phone: int = Form(...), 
+    phone: str = Form(...), 
     password: str = Form(...),
 ):
     """
-    Endpoint to handle rider sign-in. Verifies email and password (SHA-256 hash).
+    Endpoint to handle rider sign-in. Verifies phone and password (SHA-256 hash).
     """
     # Hash the password for comparison
     hashed_password = hash_password_sha256(password)
 
     # Find the rider in the database
-    rider = get_rider_by_email(email)
+    rider = get_rider_by_phone(phone)
 
     if rider and rider["password"] == hashed_password:
         # Convert ObjectId to string for serialization
