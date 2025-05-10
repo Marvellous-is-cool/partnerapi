@@ -73,6 +73,3 @@ token.json
 # Database
 *.sqlite
 *.db
-
-# Project specific (adjust as needed)
-# Add any other files/directories specific to your project
