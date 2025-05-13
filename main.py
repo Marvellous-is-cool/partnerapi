@@ -2178,7 +2178,7 @@ async def update_delivery_status(
         )
  
 
-@app.put("/delivery/{delivery_id}/status")
+@app.get("/delivery/{delivery_id}/status")
 async def get_delivery_status(
     delivery_id: str,
 ):
@@ -2191,19 +2191,21 @@ async def get_delivery_status(
         if not delivery:
             raise HTTPException(status_code=404, detail="Delivery not found")
         
-        status_info = {
-            "current_status": delivery.get("status", {}).get("current", "N/A"),
-            "timestamp": delivery.get("status", {}).get("timestamp"),
-            "rider_id": delivery.get("rider_id"),
-            "rider_location": delivery.get("rider_location"),
-            "delivery_id": delivery_id
-            
-        }
+        # Get delivery status from database
+        current_status = delivery.get("status", {}).get("current", "pending"),
+        timestamp =  delivery.get("status", {}).get("timestamp"),
+        rider_id = delivery.get("rider_id"),
+        rider_location = delivery.get("rider_location")
         
         return {
-            "status": "success",
-            "message": f"Delivery status retrieved successful",
-            "delivery_status": status_info
+            "status": {
+                "current": current_status,
+                "timestamp": timestamp
+            },
+            "rider_id": rider_id,
+            "rider_location": rider_location,
+            "delivery_id": delivery_id,
+            "message": "Delivery status retrieved successfully",
         }
     except Exception as e:
         print(f"Error in get_delivery_status: {str(e)}")
