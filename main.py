@@ -218,10 +218,10 @@ async def rider_signup(
     Endpoint to handle rider signup with required details and multiple file uploads.
     """
     # Validate vehicle type
-    if vehicle_type.lower() not in ["bike", "car", "truck"]:
+    if vehicle_type.lower() not in ["bike", "car", "bus/truck"]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid vehicle type. Must be 'bike', 'car', or 'truck'."
+            detail="Invalid vehicle type. Must be 'bike', 'car', or 'bus/truck'."
         )
 
     # Hash the password using SHA-256
