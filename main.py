@@ -1416,7 +1416,14 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
         "transactiontype": request.transactiontype.lower(),
         "packagesize": request.packagesize,
         "deliveryspeed": request.deliveryspeed.lower(),
-        "status": request.status.dict()
+        "status": request.status.dict(),
+        "transaction_info": {
+            "payment_status": "pending",
+            "payment_date": None,
+            "amount_paid": request.price,
+            "payment_reference": None,
+            "last_updated": datetime.utcnow()
+        }
     }
     
     # Insert the delivery data into the database
@@ -1518,7 +1525,14 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
         "deliveryspeed": request.deliveryspeed.lower(),
-        "status": request.status.dict()
+        "status": request.status.dict(),
+        "transaction_info": {
+            "payment_status": "pending",
+            "payment_date": None,
+            "amount_paid": request.price,
+            "payment_reference": None,
+            "last_updated": datetime.utcnow()
+        }
     }
     
     # Insert the delivery data into the database
@@ -1620,7 +1634,14 @@ async def create_car_delivery(request: CarDeliveryRequest):
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
         "deliveryspeed": request.deliveryspeed.lower(),
-        "status": request.status.dict()
+        "status": request.status.dict(),
+        "transaction_info": {
+            "payment_status": "pending",
+            "payment_date": None,
+            "amount_paid": request.price,
+            "payment_reference": None,
+            "last_updated": datetime.utcnow()
+        }
     }
     
     # Insert the delivery data into the database
@@ -2155,6 +2176,42 @@ async def update_delivery_status(
             status_code=500,
             detail=f"Failed to update delivery status: {str(e)}"
         )
+ 
+
+@app.put("/delivery/{delivery_id}/status")
+async def get_delivery_status(
+    delivery_id: str,
+):
+    """
+    Endpoint to get delivery status and manage rider interactions.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        status_info = {
+            "current_status": delivery.get("status", {}).get("current", "N/A"),
+            "timestamp": delivery.get("status", {}).get("timestamp"),
+            "rider_id": delivery.get("rider_id"),
+            "rider_location": delivery.get("rider_location"),
+            "delivery_id": delivery_id
+            
+        }
+        
+        return {
+            "status": "success",
+            "message": f"Delivery status retrieved successful",
+            "delivery_status": status_info
+        }
+    except Exception as e:
+        print(f"Error in get_delivery_status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get delivery status: {str(e)}"
+        )
+ 
  
 class RatingRequest(BaseModel):
     rating: int
