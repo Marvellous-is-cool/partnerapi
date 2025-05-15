@@ -2059,12 +2059,21 @@ async def update_delivery_status(
                     detail="Only ongoing or in-progress deliveries can be completed"
                 )
             
-            # Update the delivery status to completed
+            # Get current transaction info to preserve it
+            transaction_info = delivery.get("transaction_info", {})
+            
+            # Ensure payment status stays as "pending" regardless of delivery completion
+            if transaction_info.get("payment_status") != "pending":
+                transaction_info["payment_status"] = "pending"
+                transaction_info["last_updated"] = datetime.utcnow()
+            
+            # Update the delivery status to completed and ensure transaction remains pending
             update_data = {
                 "status": {
                     "current": "completed",
                     "timestamp": datetime.utcnow()
-                }
+                },
+                "transaction_info": transaction_info  # Explicitly include transaction_info
             }
             
         elif action == "inprogress":
