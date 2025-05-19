@@ -334,11 +334,15 @@ async def rider_signin(
 @app.put("/riders/{rider_id}/online-status")
 async def update_rider_online_status(
     rider_id: str,  
-    online: bool = Query(...),
+    data: dict
 ):
     """
     Endpoint to update rider's online status.
     """
+    
+    # Extract online status from the request body.
+    online = data.get("online", False)
+    
     # Get the rider first
     rider = get_rider_by_id(rider_id)
     
@@ -1055,7 +1059,7 @@ async def update_rider_license(
 
 
 @app.put("/riders/{rider_id}/vehicle-picture")
-async def update_rider_vehicle_picture(
+async def update_the_rider_vehicle_picture(
     rider_id: str,
     vehicle_picture: UploadFile = File(...)
 ):
@@ -2773,7 +2777,7 @@ def send_push_notification(
         return False
 
 @app.post("/test-notification")
-async def test_notification(
+async def the_test_notification(
     receiver_id: str = Form(...),
     title: str = Form("Test Notification"),
     message: str = Form("This is a test message")
@@ -2803,7 +2807,7 @@ async def test_notification(
         }
 
 @app.post("/register-device")
-async def register_device(
+async def register_user_device(
     user_id: str = Form(...),
     player_id: str = Form(...),
     user_type: str = Form(...)  # "user" or "rider"

@@ -65,7 +65,24 @@ def get_rider_by_phone(phone: str):
 def get_rider_by_id(rider_id: str):
     """
     """
-    return riders_collection.find_one({"_id": ObjectId(rider_id)})
+    try:
+        rider = riders_collection.find_one({"_id": ObjectId(rider_id)})
+        
+        if rider:
+            # Ensure online status fields exist
+            if "is_online" not in rider:
+                rider["is_online"] = False
+            if "last_online" not in rider:
+                rider["last_online"] = None
+            if "last_offline" not in rider:
+                rider["last_offline"] = datetime.utcnow()
+            if "last_activity" not in rider:
+                rider["last_activity"] = datetime.utcnow()
+                
+        return rider
+    except Exception as e:
+        print(f"Error retrieving rider: {str(e)}")
+        return None
 
 
 def get_all_riders():
