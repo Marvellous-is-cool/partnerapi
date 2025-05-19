@@ -1874,58 +1874,64 @@ async def send_message(
     """
     Send a chat message between user and rider.
     """
-    # Verify that both sender and receiver exist
-    sender = get_user_by_id(sender_id) or get_rider_by_id(sender_id)
-    receiver = get_user_by_id(receiver_id) or get_rider_by_id(receiver_id)
     
-    if not sender or not receiver:
-        raise HTTPException(status_code=404, detail="Sender or receiver not found")
+    try: 
+        # Verify that both sender and receiver exist
+        sender = get_user_by_id(sender_id) or get_rider_by_id(sender_id)
+        receiver = get_user_by_id(receiver_id) or get_rider_by_id(receiver_id)
     
-    # Verify that the delivery exists
-    delivery = get_delivery_by_id(delivery_id)
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Delivery not found")
-    
-    # Use client timestamp if provided, otherwise use server timestamp
-    timestamp = message.timestamp if message.timestamp else datetime.utcnow().isoformat()
-    
-    # Create the chat message with the timestamp
-    chat_id = create_chat(sender_id, receiver_id, message.message, delivery_id, timestamp=timestamp)
-    
-    # Send push notification to the receiver using OneSignal
-    try:
-        from utils.push_utils import send_push_notification
+        if not sender or not receiver:
+            raise HTTPException(status_code=404, detail="Sender or receiver not found")
         
+        # Verify that the delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Use client timestamp if provided, otherwise use server timestamp
+        timestamp = message.timestamp if message.timestamp else datetime.utcnow().isoformat()
+        message_id = create_chat(sender_id, receiver_id, message.message, delivery_id, timestamp=timestamp)
+        
+        if not message_id:
+            raise HTTPException(status_code=500, detail="Failed to create message")
+        
+        # Send push notification to the receiver using OneSignal
+        from utils.push_utils import send_push_notification
+            
         # Get sender name for the notification
         sender_name = f"{sender.get('firstname', '')} {sender.get('lastname', '')}"
         if not sender_name.strip():
-            sender_name = "Someone"
-            
+                sender_name = "Someone"
+        
+        # prepare the notification data
+        notification_data = {
+            "type": 'chat',
+            'delivery_id': delivery_id,
+            'sender_id': sender_id,
+            'message_id': message_id,
+        }
+                
         # Send the notification
-        notification_title = f"Message from {sender_name}"
-        notification_result = send_push_notification(
-            receiver_id, 
-            message.message, 
-            title=notification_title,
-            data={
-                "type": "chat_message",
-                "delivery_id": delivery_id,
-                "sender_id": sender_id,
-                "chat_id": chat_id
-            }
+        send_push_notification(
+            user_id=receiver_id,
+            message=message.message[:100] + ('...' if len(message.message) > 100 else ''),
+            title=f"Message from {sender_name}",
+            data=notification_data
         )
         
-        # Log the notification result
-        if notification_result["status"] == "error":
-            print(f"OneSignal notification error: {notification_result['message']}")
-    except Exception as e:
-        print(f"Error sending OneSignal push notification: {str(e)}")
+        return {
+            "status": "success",
+            "message_id": message_id,
+            "delivery_id": delivery_id,
+            "timestamp": timestamp,
+        }
     
-    return {
-        "status": "success",
-        "message": "Message sent successfully",
-        "chat_id": chat_id
-    }
+    except HTTPException as e:
+        raise e
+    
+    except Exception as e:
+        print(f"Error sending message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
 @app.get("/chat/{delivery_id}")
@@ -2226,6 +2232,38 @@ async def get_delivery_status(
             status_code=500,
             detail=f"Failed to get delivery status: {str(e)}"
         )
+ 
+@app.get("/test/users-with-player-ids")
+async def get_users_with_player_ids():
+    """Get a list of users with registered player IDs for testing"""
+    from database import users_collection, riders_collection
+    
+    # Find users with player_ids
+    users = list(users_collection.find(
+        {"player_id": {"$exists": True}}, 
+        {"_id": 1, "firstname": 1, "lastname": 1, "player_id": 1}
+    ))
+    
+    # Find riders with player_ids
+    riders = list(riders_collection.find(
+        {"player_id": {"$exists": True}}, 
+        {"_id": 1, "firstname": 1, "lastname": 1, "player_id": 1}
+    ))
+    
+    # Convert ObjectIds to strings for JSON serialization
+    for user in users:
+        user["_id"] = str(user["_id"])
+    
+    for rider in riders:
+        rider["_id"] = str(rider["_id"])
+    
+    return {
+        "status": "success",
+        "users": users,
+        "riders": riders
+    }
+ 
+ 
  
  
 class RatingRequest(BaseModel):
