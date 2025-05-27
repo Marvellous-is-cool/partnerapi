@@ -338,13 +338,14 @@ def save_file_to_gridfs(file_data, filename, content_type="image/jpeg"):
         print(f"Error saving file to GridFS: {e}")
         return None
 
-def create_chat(sender_id, receiver_id, message, delivery_id, timestamp=None):
+def create_chat(sender_id, receiver_id, message, delivery_id, timestamp):
     """
     Create a new chat message between a sender and receiver for a specific delivery.
+    The timestamp must be provided by the client to ensure correct local time.
     """
     try:
-        # Use provided timestamp or current time
-        message_time = timestamp if timestamp else datetime.utcnow().isoformat()
+        # Always use the client-provided timestamp
+        message_time = timestamp
         
         chat_data = {
             "sender_id": sender_id,

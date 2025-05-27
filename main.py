@@ -1862,7 +1862,7 @@ async def update_rider_vehicle_picture(
 
 class ChatMessage(BaseModel):
     message: str
-    timestamp: Optional[str] = None
+    timestamp: str  # Required field for client-side timestamp
 
 @app.post("/chat/{delivery_id}/{sender_id}/{receiver_id}")
 async def send_message(
@@ -1888,8 +1888,8 @@ async def send_message(
         if not delivery:
             raise HTTPException(status_code=404, detail="Delivery not found")
         
-        # Use client timestamp if provided, otherwise use server timestamp
-        timestamp = message.timestamp if message.timestamp else datetime.utcnow().isoformat()
+        # Always use client-provided timestamp to ensure correct local time
+        timestamp = message.timestamp
         message_id = create_chat(sender_id, receiver_id, message.message, delivery_id, timestamp=timestamp)
         
         if not message_id:
@@ -2231,6 +2231,146 @@ async def get_delivery_status(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get delivery status: {str(e)}"
+        )
+
+
+@app.put("/users/{user_id}/delivery/{delivery_id}/edit")
+async def edit_delivery_details(
+    user_id: str,
+    delivery_id: str,
+    startpoint: Optional[str] = Form(None),
+    endpoint: Optional[str] = Form(None),
+    stops: Optional[str] = Form(None),  # JSON string of stops
+    packagesize: Optional[str] = Form(None),
+    deliveryspeed: Optional[str] = Form(None),
+    transactiontype: Optional[str] = Form(None),
+    price: Optional[float] = Form(None),
+    distance: Optional[str] = Form(None),
+    vehicletype: Optional[str] = Form(None),
+    deliverytype: Optional[str] = Form(None),
+):
+    """
+    Endpoint for users to edit their delivery details.
+    Only allows editing if the delivery is still in 'pending' status.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify user owns this delivery
+        if delivery.get("user_id") != user_id:
+            raise HTTPException(
+                status_code=403, 
+                detail="You can only edit your own deliveries"
+            )
+        
+        # Check if delivery is in a state that can be edited
+        current_status = delivery.get("status", {}).get("current")
+        if current_status not in ["pending"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Only pending deliveries can be edited"
+            )
+        
+        # Prepare update data
+        update_data = {}
+        
+        # Only include fields that are provided
+        if startpoint:
+            update_data["startpoint"] = startpoint
+        
+        if endpoint:
+            update_data["endpoint"] = endpoint
+        
+        if stops:
+            try:
+                # Parse JSON string to list
+                import json
+                stops_list = json.loads(stops)
+                if not isinstance(stops_list, list):
+                    raise ValueError("Stops must be a list")
+                update_data["stops"] = stops_list
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid JSON format for stops"
+                )
+        
+        if packagesize:
+            update_data["packagesize"] = packagesize
+        
+        if deliveryspeed:
+            if deliveryspeed.lower() not in ["express", "standard"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid delivery speed. Choose 'express' or 'standard'."
+                )
+            update_data["deliveryspeed"] = deliveryspeed.lower()
+        
+        if transactiontype:
+            if transactiontype.lower() not in ["cash", "online"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid transaction type. Choose 'cash' or 'online'."
+                )
+            update_data["transactiontype"] = transactiontype.lower()
+            
+        if price is not None:  # Using 'is not None' to allow 0.0 as a valid price
+            update_data["price"] = float(price)
+            
+        if distance:
+            update_data["distance"] = distance
+            
+        if vehicletype:
+            if vehicletype.lower() not in ["bike", "car"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid vehicle type. Choose 'bike' or 'car'."
+                )
+            update_data["vehicletype"] = vehicletype.lower()
+            
+        if deliverytype:
+            if deliverytype.lower() not in ["standard", "express", "scheduled"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid delivery type. Choose 'standard', 'express', or 'scheduled'."
+                )
+            update_data["deliverytype"] = deliverytype.lower()
+        
+        if not update_data:
+            raise HTTPException(
+                status_code=400, 
+                detail="No data provided for update"
+            )
+        
+        # Add last updated timestamp
+        update_data["last_updated"] = datetime.utcnow()
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, update_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update delivery details"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Delivery details updated successfully",
+            "delivery_id": delivery_id,
+            "updated_data": update_data
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error updating delivery details: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update delivery details: {str(e)}"
         )
  
 @app.get("/test/users-with-player-ids")
@@ -3306,4 +3446,4 @@ async def register_device(
     except Exception as e:
         return {"status": "error", "message": f"Error registering device: {str(e)}"}
         
-# 
+#
