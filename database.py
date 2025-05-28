@@ -19,6 +19,7 @@ users_collection = db["users"]
 admins_collection = db["admins"]
 delivery_collection = db['deliveries']
 chat_collection = db['chats']
+archived_deliveries_collection = db['archived_deliveries']
 
 
 fs = gridfs.GridFS(db)
@@ -606,4 +607,118 @@ def update_admin_details_db(admin_id: str, update_data: dict) -> bool:
     except Exception as e:
         print(f"Error updating admin details: {e}")
         return False
+    
+# archived deliveries
+def archive_delivery(delivery_id: str) -> bool:
+    """
+    Move a delivery to archive instead of deleting it
+    """
+    try:
+        # Get the delivery document
+        delivery = delivery_collection.find_one({"_id": ObjectId(delivery_id)})
+        if not delivery:
+            return False
+            
+        # Add archive metadata
+        delivery['archived_at'] = datetime.utcnow()
+        delivery['archived_from_id'] = str(delivery['_id'])
+        
+        # Remove the old _id to get a new one in archive
+        del delivery['_id']
+        
+        # Insert into archive
+        result = archived_deliveries_collection.insert_one(delivery)
+        if result.inserted_id:
+            # Only delete from main collection if archive was successful
+            delivery_collection.delete_one({"_id": ObjectId(delivery_id)})
+            return True
+            
+        return False
+        
+    except Exception as e:
+        print(f"Error archiving delivery: {str(e)}")
+        return False
 
+
+
+def permanently_delete_delivery(delivery_id: str, archive: bool = True) -> bool:
+    """
+    Permanently delete a delivery from either main or archive collection
+    """
+    try:
+        collection = archived_deliveries_collection if archive else delivery_collection
+        result = collection.delete_one({"archived_from_id": delivery_id} if archive else {"_id": ObjectId(delivery_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error permanently deleting delivery: {e}")
+        return False
+
+def restore_delivery(archived_id: str) -> bool:
+    """
+    Restore a delivery from archive to main collection
+    """
+    try:
+        # Get the archived delivery
+        archived = archived_deliveries_collection.find_one({"archived_from_id": archived_id})
+        if not archived:
+            return False
+            
+        # Remove archive metadata
+        del archived['archived_at']
+        original_id = archived['archived_from_id']
+        del archived['archived_from_id']
+        del archived['_id']  # Remove archive _id
+        
+        # Restore to main collection with original ID
+        delivery_collection.insert_one({**archived, "_id": ObjectId(original_id)})
+        
+        # Remove from archive
+        archived_deliveries_collection.delete_one({"archived_from_id": archived_id})
+        
+        return True
+    except Exception as e:
+        print(f"Error restoring delivery: {e}")
+        return False
+
+def get_archived_deliveries():
+    """
+    Get all archived deliveries with proper ObjectId handling
+    """
+    try:
+        # Use empty filter to get all documents
+        cursor = archived_deliveries_collection.find({})
+        archived_list = []
+
+        for delivery in cursor:
+            try:
+                # Convert ObjectIds to strings
+                if "_id" in delivery:
+                    delivery["_id"] = str(delivery["_id"])
+                if "user_id" in delivery:
+                    delivery["user_id"] = str(delivery["user_id"])
+                if "rider_id" in delivery:
+                    delivery["rider_id"] = str(delivery["rider_id"])
+                if "archived_from_id" in delivery:
+                    delivery["archived_from_id"] = str(delivery["archived_from_id"])
+
+                # Convert datetime objects
+                datetime_fields = ["archived_at", "created_at", "updated_at"]
+                for field in datetime_fields:
+                    if field in delivery and isinstance(delivery[field], datetime):
+                        delivery[field] = delivery[field].isoformat()
+
+                # Handle nested status timestamp
+                if "status" in delivery and isinstance(delivery["status"], dict):
+                    if "timestamp" in delivery["status"] and isinstance(delivery["status"]["timestamp"], datetime):
+                        delivery["status"]["timestamp"] = delivery["status"]["timestamp"].isoformat()
+
+                archived_list.append(delivery)
+            except Exception as doc_error:
+                print(f"Error processing document: {str(doc_error)}")
+                continue
+
+        return archived_list
+
+    except Exception as e:
+        print(f"Error in get_archived_deliveries: {str(e)}")
+        return []    

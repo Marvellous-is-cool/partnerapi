@@ -45,10 +45,16 @@ from database import (
     get_file_by_id,
     get_user_by_id, 
     get_rider_by_id,
-    riders_collection
+    riders_collection,
+    archive_delivery,
+    permanently_delete_delivery,
+    restore_delivery,
+    get_archived_deliveries,
+    archived_deliveries_collection,
+    delivery_collection
 )
 import hashlib
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, Depends
 import random
 import string
 from datetime import datetime, timedelta
@@ -64,7 +70,7 @@ import os
 from onesignal_sdk.client import Client
 from onesignal_sdk.error import OneSignalHTTPError
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 from email_service import EmailService
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -92,6 +98,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyQuery
+from fastapi import Security
+
+api_key_query = APIKeyQuery(name="admin_key", auto_error=True)
+ADMIN_DELETE_KEY = os.getenv("ADMIN_DELETE_KEY")
 
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -693,7 +704,61 @@ def fetch_all_deliveries():
 
     return {"status": "success", "deliveries": sorted_deliveries}
 
+#  endpoint to view archived deliveries
+@app.get("/deliveries/archived")
+async def get_archived_deliveries_endpoint(
+    admin_key: str = Security(api_key_query)
+):
+    """
+    Get all archived deliveries
+    """
+    try:
+        # Verify admin key
+        if not admin_key or hashlib.sha256(admin_key.encode()).hexdigest() != hashlib.sha256(ADMIN_DELETE_KEY.encode()).hexdigest():
+            raise HTTPException(status_code=403, detail="Invalid admin key")
 
+        # Get all documents from archived collection
+        cursor = archived_deliveries_collection.find()
+        archived_list = []
+
+        # Process each document
+        for delivery in cursor:
+            try:
+                # Convert ObjectId to string
+                delivery["_id"] = str(delivery["_id"])
+                
+                # Convert any other ObjectIds
+                if "user_id" in delivery:
+                    delivery["user_id"] = str(delivery["user_id"])
+                if "rider_id" in delivery:
+                    delivery["rider_id"] = str(delivery["rider_id"])
+                if "archived_from_id" in delivery:
+                    delivery["archived_from_id"] = str(delivery["archived_from_id"])
+                
+                # Convert datetime objects to ISO format
+                for key, value in delivery.items():
+                    if isinstance(value, datetime):
+                        delivery[key] = value.isoformat()
+                
+                archived_list.append(delivery)
+            except Exception as e:
+                print(f"Error processing document: {str(e)}")
+                continue
+
+        return {
+            "status": "success",
+            "archived_deliveries": archived_list,
+            "count": len(archived_list)
+        }
+
+    except Exception as e:
+        print(f"Error in get_archived_deliveries_endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving archived deliveries: {str(e)}"
+        )
+ 
+# get deliveries 
 @app.get("/deliveries/{delivery_id}")
 def fetch_delivery_by_id(delivery_id: str):
     """
@@ -706,6 +771,580 @@ def fetch_delivery_by_id(delivery_id: str):
 
     return {"status": "success", "delivery": delivery}
 
+# ------------------------- DELIVERIES ACHIVES -----------------------
+
+# delete delivery by id
+@app.delete("/deliveries/{delivery_id}/delete")
+async def archive_delivery_endpoint(delivery_id: str):
+    """
+    Move a delivery to archieve instead of deleting
+    """
+    delivery = get_delivery_by_id(delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    success = archive_delivery(delivery_id)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to delete delivery {delivery_id}")
+    
+    return {"status": "success", "message": "Delivery deleted successfully"}    
+
+# delete all deliveries
+@app.delete("/deliveries/delete")
+async def achive_all_deliveries(admin_key: str = Security(api_key_query)):
+    """
+    Achive all deliveries instead of deleting them all
+    """
+    
+    # Verify admin key
+    if not admin_key or hashlib.sha256(admin_key.encode()).hexdigest() != hashlib.sha256(ADMIN_DELETE_KEY.encode()).hexdigest():
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    
+    
+    # Get all active deliveries
+    deliveries = delivery_collection.find({})
+    archived_count = 0
+    
+    ## Archive each delivery
+    for delivery in deliveries:
+        delivery_id = str(delivery["_id"])
+        if archive_delivery(delivery_id):
+            archived_count += 1
+    
+    if archived_count == 0:
+        raise HTTPException(status_code=404, detail="No deliveries found to archive")
+    
+    return {
+        "status": "success", 
+        "message": f"All deliveries archived successfully. Total: {archived_count}"
+    }
+
+#  endpoint for permanent deletion
+@app.delete("/deliveries/{delivery_id}/permanent")
+async def permanent_delete_delivery(
+    delivery_id: str,
+    admin_key: str = Security(api_key_query),
+    from_archive: bool = True
+):
+    """
+    Permanently delete a delivery with admin key verification
+    """
+    # Verify admin key
+    if not admin_key or hashlib.sha256(admin_key.encode()).hexdigest() != hashlib.sha256(ADMIN_DELETE_KEY.encode()).hexdigest():
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    
+    success = permanently_delete_delivery(delivery_id, archive=from_archive)
+    if not success:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    
+    return {"status": "success", "message": "Delivery permanently deleted"}
+
+#  endpoint to restore archived delivery
+@app.post("/deliveries/{delivery_id}/restore")
+async def restore_delivery_endpoint(
+    delivery_id: str,
+    admin_key: str = Security(api_key_query)
+):
+    """
+    Restore a delivery from archive
+    """
+    # Verify admin key
+    if not admin_key or hashlib.sha256(admin_key.encode()).hexdigest() != hashlib.sha256(ADMIN_DELETE_KEY.encode()).hexdigest():
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+        
+    success = restore_delivery(delivery_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Archived delivery not found")
+    
+    return {"status": "success", "message": "Delivery restored successfully"}
+
+# endpoint to delete all achieved deliveries
+@app.delete("/deliveries/permanent-delete-all")
+async def permanent_delete_all_deliveries(
+    admin_key: str = Security(api_key_query),
+    from_archive: bool = True
+):
+    """
+    Permanently delete all deliveries with admin key verification
+    """
+    # Verify admin key
+    if not admin_key or hashlib.sha256(admin_key.encode()).hexdigest() != hashlib.sha256(ADMIN_DELETE_KEY.encode()).hexdigest():
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    
+    collection = archived_deliveries_collection if from_archive else delivery_collection
+    result = collection.delete_many({})
+    deleted_count = result.deleted_count
+    
+    if deleted_count == 0:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No {'archived ' if from_archive else ''}deliveries found to delete"
+        )
+    
+    return {
+        "status": "success", 
+        "message": f"All {'archived ' if from_archive else ''}deliveries permanently deleted. Total: {deleted_count}"
+    }
+    
+# update deliveries
+@app.put("/delivery/{delivery_id}/update")
+async def update_delivery_status(
+    delivery_id: str,
+    rider_id: str = Form(...),
+    action: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Endpoint to update delivery status and manage rider interactions.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        # Initialize update data
+        update_data = {}
+        
+        if action == "accept":
+            # Check if delivery is already accepted
+            if "rider_id" in delivery and delivery["rider_id"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This delivery has already been accepted by another rider"
+                )
+            
+            # Check if rider previously rejected this delivery
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id in rejected_riders:
+                # Remove from rejected list first
+                rejected_riders.remove(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+            
+            # Update delivery with rider info and status
+            update_data.update({
+                "rider_id": rider_id,
+                "status": {
+                    "current": "ongoing",
+                    "timestamp": datetime.utcnow()
+                }
+            })
+            
+        elif action == "reject":
+            # Cannot reject if already accepted by this rider
+            if delivery.get("rider_id") == rider_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You have already accepted this delivery. Use cancel instead."
+                )
+                
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id not in rejected_riders:
+                rejected_riders.append(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+                
+        elif action == "undo_reject":
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id in rejected_riders:
+                rejected_riders.remove(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+                
+        elif action == "cancel":
+            # Only the assigned rider can cancel
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only the assigned rider can cancel this delivery"
+                )
+                
+            # Reset the delivery status
+            update_data = {
+                "rider_id": None,
+                "status": {
+                    "current": "pending",
+                    "timestamp": datetime.utcnow()
+                }
+            }
+        elif action == "complete":
+            # Only the assigned rider can complete the delivery
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the assigned rider can complete this delivery"
+                )
+            
+            # Check if delivery is in the correct state to be completed
+            current_status = delivery.get("status", {}).get("current")
+            if current_status not in ["ongoing", "inprogress"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only ongoing or in-progress deliveries can be completed"
+                )
+            
+            # Get current transaction info to preserve it
+            transaction_info = delivery.get("transaction_info", {})
+            
+            # Ensure payment status stays as "pending" regardless of delivery completion
+            if transaction_info.get("payment_status") != "pending":
+                transaction_info["payment_status"] = "pending"
+                transaction_info["last_updated"] = datetime.utcnow()
+            
+            # Update the delivery status to completed and ensure transaction remains pending
+            update_data = {
+                "status": {
+                    "current": "completed",
+                    "timestamp": datetime.utcnow()
+                },
+                "transaction_info": transaction_info  # Explicitly include transaction_info
+            }
+            
+        elif action == "inprogress":
+            # Only the assigned rider can mark as in progress
+            if delivery.get("rider_id") != rider_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the assigned rider can mark this delivery as in progress"
+                )
+            
+            # Check if delivery is in the correct state to be marked as in progress
+            if delivery.get("status", {}).get("current") != "ongoing":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only ongoing deliveries can be marked as in progress"
+                )
+            
+            # Update the delivery status to in progress
+            update_data = {
+                "status": {
+                    "current": "inprogress",
+                    "timestamp": datetime.utcnow()
+                }
+            }
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No updates required")
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, update_data)
+        
+        # EMAIL NOTIFICATION
+        if success and action != 'reject':
+            # Get user and rider for notifications
+            delivery = get_delivery_by_id(delivery_id)
+            user = get_user_by_id(delivery.get("user_id"))
+            rider = get_rider_by_id(rider_id)
+            
+            # Send notification emails
+            if user and user.get("email") and user.get("email_notification", True):
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject=f"Delivery Update: {action}",
+                    recipients=[user["email"]],
+                    body=email_service.delivery_template(action, delivery_id)
+                )
+            
+            if rider and rider.get("email") and rider.get("email_notification", True):
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject=f"Delivery Update: {action}",
+                    recipients=[rider["email"]],
+                    body=email_service.delivery_template(action, delivery_id)
+                )
+                
+            # PUSH NOTIFICATION
+            try:
+                # check if user has push notifications enabled
+                if user and user.get("push_notification", True):
+                    send_push_notification(
+                        user_id=delivery.get("user_id"),
+                        message=f"Your delivery status has been updated to {action}",
+                        title="Delivery Status Update",
+                        data={
+                            "type": "delivery_update",
+                            "delivery_id": delivery_id,
+                            "status": action
+                        }
+                    )
+                    
+                # check if rider has push notifications enabled
+                if rider and rider.get("push_notification", True):
+                    send_push_notification(
+                        user_id=rider_id,
+                        message=f"Your delivery status has been updated to {action}",
+                        title="Delivery Status Update",
+                        data={
+                            "type": "delivery_update",
+                            "delivery_id": delivery_id,
+                            "status": action 
+                        }
+                    )
+            except Exception as e:
+                print(f"Error sending push notification: {str(e)}")
+                
+                
+        # Check if the update was successful but log errors without disrupting flow
+        if not success:
+            print(f"Warning: Failed to update delivery {delivery_id} with {action} action.")
+            print(f"Update data: {update_data}")
+                
+            
+        if not success:
+            print(f"Failed to update delivery {delivery_id} with data: {update_data}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update delivery status in database"
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Delivery {action} successful",
+            "delivery_id": delivery_id,
+            "updated_data": update_data
+        }
+    except Exception as e:
+        print(f"Error in update_delivery_status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update delivery status: {str(e)}"
+        )
+
+@app.get("/delivery/{delivery_id}/status")
+async def get_delivery_status(
+    delivery_id: str,
+):
+    """
+    Endpoint to get delivery status and manage rider interactions.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Get delivery status from database
+        current_status = delivery.get("status", {}).get("current", "pending"),
+        timestamp =  delivery.get("status", {}).get("timestamp"),
+        rider_id = delivery.get("rider_id"),
+        rider_location = delivery.get("rider_location")
+        
+        return {
+            "status": {
+                "current": current_status,
+                "timestamp": timestamp
+            },
+            "rider_id": rider_id,
+            "rider_location": rider_location,
+            "delivery_id": delivery_id,
+            "message": "Delivery status retrieved successfully",
+        }
+    except Exception as e:
+        print(f"Error in get_delivery_status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get delivery status: {str(e)}"
+        )
+ 
+@app.put("/delivery/{delivery_id}/transaction")
+async def update_delivery_transaction(
+    delivery_id: str,
+    transaction_data: TransactionUpdateRequest
+):
+    """
+    Endpoint to update transaction information for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Prepare update data
+        update_data = {}
+        
+        # Only include fields that are provided
+        if transaction_data.transaction_type is not None:
+            if transaction_data.transaction_type.lower() not in ["cash", "online"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid transaction type. Choose 'cash' or 'online'."
+                )
+            update_data["transactiontype"] = transaction_data.transaction_type.lower()
+        
+        # Create or update transaction info
+        transaction_info = delivery.get("transaction_info", {})
+        
+        if transaction_data.payment_status is not None:
+            if transaction_data.payment_status.lower() not in ["pending", "paid", "failed"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid payment status. Choose 'pending', 'paid', or 'failed'."
+                )
+            transaction_info["payment_status"] = transaction_data.payment_status.lower()
+        
+        if transaction_data.payment_reference is not None:
+            transaction_info["payment_reference"] = transaction_data.payment_reference
+        
+        if transaction_data.payment_date is not None:
+            transaction_info["payment_date"] = transaction_data.payment_date
+        
+        if transaction_data.amount_paid is not None:
+            transaction_info["amount_paid"] = transaction_data.amount_paid
+        
+        # Add last updated timestamp
+        transaction_info["last_updated"] = datetime.utcnow()
+        
+        # Add transaction info to update data
+        if transaction_info:
+            update_data["transaction_info"] = transaction_info
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No transaction data provided for update")
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, update_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update transaction information"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Transaction information updated successfully",
+            "delivery_id": delivery_id,
+            "updated_data": update_data
+        }
+    
+    except Exception as e:
+        print(f"Error updating transaction information: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update transaction information: {str(e)}"
+        )
+
+@app.put("/delivery/{delivery_id}/rider-location")
+async def update_rider_location(
+    delivery_id: str,
+    rider_id: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    eta_minutes: Optional[int] = Form(None)
+):
+    """
+    Endpoint to update rider's current location and ETA for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Verify rider exists and is assigned to this delivery
+        if delivery.get("rider_id") != rider_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the assigned rider can update location for this delivery"
+            )
+        
+        # Check if delivery is in a valid state for location updates
+        current_status = delivery.get("status", {}).get("current")
+        if current_status not in ["ongoing", "inprogress"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Location can only be updated for ongoing or in-progress deliveries"
+            )
+        
+        # Prepare location update data
+        location_data = {
+            "rider_location": {
+                "rider_id": rider_id,
+                "latitude": latitude,
+                "longitude": longitude,
+                "last_updated": datetime.utcnow()
+            }
+        }
+        
+        # Add ETA if provided
+        if eta_minutes is not None:
+            location_data["rider_location"]["eta_minutes"] = eta_minutes
+            location_data["rider_location"]["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
+        
+        # Update the delivery in database
+        success = update_delivery(delivery_id, location_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update rider location"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Rider location updated successfully",
+            "delivery_id": delivery_id,
+            "updated_data": location_data
+        }
+    
+    except Exception as e:
+        print(f"Error updating rider location: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update rider location: {str(e)}"
+        )
+
+@app.get("/deliveries/{delivery_id}/rider-location")
+async def get_delivery_location(delivery_id: str):
+    """
+    Endpoint to get delivery's current location and ETA for a delivery.
+    """
+    try:
+        # Verify delivery exists
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Check if delivery is in a valid state for location updates
+        current_status = delivery.get("status", {}).get("current")
+        if current_status not in ["ongoing", "inprogress"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Location can only be retrieved for ongoing or in-progress deliveries"
+            )
+        
+        # Get rider location from delivery data
+        rider_location = delivery.get("rider_location")
+        if not rider_location:
+            raise HTTPException(
+                status_code=404,
+                detail="No location data available for this delivery"
+            )
+            
+        
+        return {
+            "status": "success",
+            "delivery_id": delivery_id,
+            "rider_id": rider_location.get("rider_id"),
+            "location_data": {
+                "latitude": rider_location.get("latitude"),
+                "longitude": rider_location.get("longitude"),
+                "last_updated": rider_location.get("last_updated"),
+                "eta_minutes": rider_location.get("eta_minutes"),
+                "eta_time": rider_location.get("eta_time")
+            }
+        }
+    
+    except Exception as e:
+        print(f"Error getting rider location: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get rider location: {str(e)}"
+        )
 
 @app.put("/riders/{rider_id}/activate")
 async def activate_rider(rider_id: str):
@@ -1970,269 +2609,6 @@ async def mark_read(delivery_id: str, receiver_id: str):
         "message": "Messages marked as read"
     }
 
-@app.put("/delivery/{delivery_id}/update")
-async def update_delivery_status(
-    delivery_id: str,
-    rider_id: str = Form(...),
-    action: str = Form(...),
-    background_tasks: BackgroundTasks = BackgroundTasks()
-):
-    """
-    Endpoint to update delivery status and manage rider interactions.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Verify rider exists
-        rider = get_rider_by_id(rider_id)
-        if not rider:
-            raise HTTPException(status_code=404, detail="Rider not found")
-        
-        # Initialize update data
-        update_data = {}
-        
-        if action == "accept":
-            # Check if delivery is already accepted
-            if "rider_id" in delivery and delivery["rider_id"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="This delivery has already been accepted by another rider"
-                )
-            
-            # Check if rider previously rejected this delivery
-            rejected_riders = delivery.get("rejected_riders", [])
-            if rider_id in rejected_riders:
-                # Remove from rejected list first
-                rejected_riders.remove(rider_id)
-                update_data["rejected_riders"] = rejected_riders
-            
-            # Update delivery with rider info and status
-            update_data.update({
-                "rider_id": rider_id,
-                "status": {
-                    "current": "ongoing",
-                    "timestamp": datetime.utcnow()
-                }
-            })
-            
-        elif action == "reject":
-            # Cannot reject if already accepted by this rider
-            if delivery.get("rider_id") == rider_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="You have already accepted this delivery. Use cancel instead."
-                )
-                
-            rejected_riders = delivery.get("rejected_riders", [])
-            if rider_id not in rejected_riders:
-                rejected_riders.append(rider_id)
-                update_data["rejected_riders"] = rejected_riders
-                
-        elif action == "undo_reject":
-            rejected_riders = delivery.get("rejected_riders", [])
-            if rider_id in rejected_riders:
-                rejected_riders.remove(rider_id)
-                update_data["rejected_riders"] = rejected_riders
-                
-        elif action == "cancel":
-            # Only the assigned rider can cancel
-            if delivery.get("rider_id") != rider_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Only the assigned rider can cancel this delivery"
-                )
-                
-            # Reset the delivery status
-            update_data = {
-                "rider_id": None,
-                "status": {
-                    "current": "pending",
-                    "timestamp": datetime.utcnow()
-                }
-            }
-        elif action == "complete":
-            # Only the assigned rider can complete the delivery
-            if delivery.get("rider_id") != rider_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only the assigned rider can complete this delivery"
-                )
-            
-            # Check if delivery is in the correct state to be completed
-            current_status = delivery.get("status", {}).get("current")
-            if current_status not in ["ongoing", "inprogress"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Only ongoing or in-progress deliveries can be completed"
-                )
-            
-            # Get current transaction info to preserve it
-            transaction_info = delivery.get("transaction_info", {})
-            
-            # Ensure payment status stays as "pending" regardless of delivery completion
-            if transaction_info.get("payment_status") != "pending":
-                transaction_info["payment_status"] = "pending"
-                transaction_info["last_updated"] = datetime.utcnow()
-            
-            # Update the delivery status to completed and ensure transaction remains pending
-            update_data = {
-                "status": {
-                    "current": "completed",
-                    "timestamp": datetime.utcnow()
-                },
-                "transaction_info": transaction_info  # Explicitly include transaction_info
-            }
-            
-        elif action == "inprogress":
-            # Only the assigned rider can mark as in progress
-            if delivery.get("rider_id") != rider_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only the assigned rider can mark this delivery as in progress"
-                )
-            
-            # Check if delivery is in the correct state to be marked as in progress
-            if delivery.get("status", {}).get("current") != "ongoing":
-                raise HTTPException(
-                    status_code=400,
-                    detail="Only ongoing deliveries can be marked as in progress"
-                )
-            
-            # Update the delivery status to in progress
-            update_data = {
-                "status": {
-                    "current": "inprogress",
-                    "timestamp": datetime.utcnow()
-                }
-            }
-        
-        if not update_data:
-            raise HTTPException(status_code=400, detail="No updates required")
-        
-        # Update the delivery in database
-        success = update_delivery(delivery_id, update_data)
-        
-        # EMAIL NOTIFICATION
-        if success and action != 'reject':
-            # Get user and rider for notifications
-            delivery = get_delivery_by_id(delivery_id)
-            user = get_user_by_id(delivery.get("user_id"))
-            rider = get_rider_by_id(rider_id)
-            
-            # Send notification emails
-            if user and user.get("email") and user.get("email_notification", True):
-                background_tasks.add_task(
-                    email_service.send_email,
-                    subject=f"Delivery Update: {action}",
-                    recipients=[user["email"]],
-                    body=email_service.delivery_template(action, delivery_id)
-                )
-            
-            if rider and rider.get("email") and rider.get("email_notification", True):
-                background_tasks.add_task(
-                    email_service.send_email,
-                    subject=f"Delivery Update: {action}",
-                    recipients=[rider["email"]],
-                    body=email_service.delivery_template(action, delivery_id)
-                )
-                
-            # PUSH NOTIFICATION
-            try:
-                # check if user has push notifications enabled
-                if user and user.get("push_notification", True):
-                    send_push_notification(
-                        user_id=delivery.get("user_id"),
-                        message=f"Your delivery status has been updated to {action}",
-                        title="Delivery Status Update",
-                        data={
-                            "type": "delivery_update",
-                            "delivery_id": delivery_id,
-                            "status": action
-                        }
-                    )
-                    
-                # check if rider has push notifications enabled
-                if rider and rider.get("push_notification", True):
-                    send_push_notification(
-                        user_id=rider_id,
-                        message=f"Your delivery status has been updated to {action}",
-                        title="Delivery Status Update",
-                        data={
-                            "type": "delivery_update",
-                            "delivery_id": delivery_id,
-                            "status": action 
-                        }
-                    )
-            except Exception as e:
-                print(f"Error sending push notification: {str(e)}")
-                
-                
-        # Check if the update was successful but log errors without disrupting flow
-        if not success:
-            print(f"Warning: Failed to update delivery {delivery_id} with {action} action.")
-            print(f"Update data: {update_data}")
-                
-            
-        if not success:
-            print(f"Failed to update delivery {delivery_id} with data: {update_data}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update delivery status in database"
-            )
-        
-        return {
-            "status": "success",
-            "message": f"Delivery {action} successful",
-            "delivery_id": delivery_id,
-            "updated_data": update_data
-        }
-    except Exception as e:
-        print(f"Error in update_delivery_status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update delivery status: {str(e)}"
-        )
- 
-
-@app.get("/delivery/{delivery_id}/status")
-async def get_delivery_status(
-    delivery_id: str,
-):
-    """
-    Endpoint to get delivery status and manage rider interactions.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Get delivery status from database
-        current_status = delivery.get("status", {}).get("current", "pending"),
-        timestamp =  delivery.get("status", {}).get("timestamp"),
-        rider_id = delivery.get("rider_id"),
-        rider_location = delivery.get("rider_location")
-        
-        return {
-            "status": {
-                "current": current_status,
-                "timestamp": timestamp
-            },
-            "rider_id": rider_id,
-            "rider_location": rider_location,
-            "delivery_id": delivery_id,
-            "message": "Delivery status retrieved successfully",
-        }
-    except Exception as e:
-        print(f"Error in get_delivery_status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get delivery status: {str(e)}"
-        )
- 
 @app.get("/test/users-with-player-ids")
 async def get_users_with_player_ids():
     """Get a list of users with registered player IDs for testing"""
@@ -2262,10 +2638,6 @@ async def get_users_with_player_ids():
         "users": users,
         "riders": riders
     }
- 
- 
- 
- 
 class RatingRequest(BaseModel):
     rating: int
     comment: str = None
@@ -2594,157 +2966,6 @@ async def update_user_profile_picture(
         )
 
 
-@app.put("/delivery/{delivery_id}/transaction")
-async def update_delivery_transaction(
-    delivery_id: str,
-    transaction_data: TransactionUpdateRequest
-):
-    """
-    Endpoint to update transaction information for a delivery.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Prepare update data
-        update_data = {}
-        
-        # Only include fields that are provided
-        if transaction_data.transaction_type is not None:
-            if transaction_data.transaction_type.lower() not in ["cash", "online"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid transaction type. Choose 'cash' or 'online'."
-                )
-            update_data["transactiontype"] = transaction_data.transaction_type.lower()
-        
-        # Create or update transaction info
-        transaction_info = delivery.get("transaction_info", {})
-        
-        if transaction_data.payment_status is not None:
-            if transaction_data.payment_status.lower() not in ["pending", "paid", "failed"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid payment status. Choose 'pending', 'paid', or 'failed'."
-                )
-            transaction_info["payment_status"] = transaction_data.payment_status.lower()
-        
-        if transaction_data.payment_reference is not None:
-            transaction_info["payment_reference"] = transaction_data.payment_reference
-        
-        if transaction_data.payment_date is not None:
-            transaction_info["payment_date"] = transaction_data.payment_date
-        
-        if transaction_data.amount_paid is not None:
-            transaction_info["amount_paid"] = transaction_data.amount_paid
-        
-        # Add last updated timestamp
-        transaction_info["last_updated"] = datetime.utcnow()
-        
-        # Add transaction info to update data
-        if transaction_info:
-            update_data["transaction_info"] = transaction_info
-        
-        if not update_data:
-            raise HTTPException(status_code=400, detail="No transaction data provided for update")
-        
-        # Update the delivery in database
-        success = update_delivery(delivery_id, update_data)
-        
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update transaction information"
-            )
-        
-        return {
-            "status": "success",
-            "message": "Transaction information updated successfully",
-            "delivery_id": delivery_id,
-            "updated_data": update_data
-        }
-    
-    except Exception as e:
-        print(f"Error updating transaction information: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update transaction information: {str(e)}"
-        )
-
-
-@app.put("/delivery/{delivery_id}/rider-location")
-async def update_rider_location(
-    delivery_id: str,
-    rider_id: str = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    eta_minutes: Optional[int] = Form(None)
-):
-    """
-    Endpoint to update rider's current location and ETA for a delivery.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Verify rider exists and is assigned to this delivery
-        if delivery.get("rider_id") != rider_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Only the assigned rider can update location for this delivery"
-            )
-        
-        # Check if delivery is in a valid state for location updates
-        current_status = delivery.get("status", {}).get("current")
-        if current_status not in ["ongoing", "inprogress"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Location can only be updated for ongoing or in-progress deliveries"
-            )
-        
-        # Prepare location update data
-        location_data = {
-            "rider_location": {
-                "rider_id": rider_id,
-                "latitude": latitude,
-                "longitude": longitude,
-                "last_updated": datetime.utcnow()
-            }
-        }
-        
-        # Add ETA if provided
-        if eta_minutes is not None:
-            location_data["rider_location"]["eta_minutes"] = eta_minutes
-            location_data["rider_location"]["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
-        
-        # Update the delivery in database
-        success = update_delivery(delivery_id, location_data)
-        
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update rider location"
-            )
-        
-        return {
-            "status": "success",
-            "message": "Rider location updated successfully",
-            "delivery_id": delivery_id,
-            "updated_data": location_data
-        }
-    
-    except Exception as e:
-        print(f"Error updating rider location: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update rider location: {str(e)}"
-        )
-
-
 def send_push_notification(
     user_id: str, 
     message: str, 
@@ -2880,85 +3101,6 @@ async def register_user_device(
     except Exception as e:
         return {"status": "error", "message": f"Error registering device: {str(e)}"}
         
-@app.get("/deliveries/{delivery_id}/rider-location")
-async def get_delivery_location(delivery_id: str):
-    """
-    Endpoint to get delivery's current location and ETA for a delivery.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Check if delivery is in a valid state for location updates
-        current_status = delivery.get("status", {}).get("current")
-        if current_status not in ["ongoing", "inprogress"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Location can only be retrieved for ongoing or in-progress deliveries"
-            )
-        
-        # Get rider location from delivery data
-        rider_location = delivery.get("rider_location")
-        if not rider_location:
-            raise HTTPException(
-                status_code=404,
-                detail="No location data available for this delivery"
-            )
-            
-        
-        return {
-            "status": "success",
-            "delivery_id": delivery_id,
-            "rider_id": rider_location.get("rider_id"),
-            "location_data": {
-                "latitude": rider_location.get("latitude"),
-                "longitude": rider_location.get("longitude"),
-                "last_updated": rider_location.get("last_updated"),
-                "eta_minutes": rider_location.get("eta_minutes"),
-                "eta_time": rider_location.get("eta_time")
-            }
-        }
-    
-    except Exception as e:
-        print(f"Error getting rider location: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get rider location: {str(e)}"
-        )
-    
-
-# delete delivery by id
-@app.delete("/deliveries/{delivery_id}/delete")
-async def delete_delivery(delivery_id: str):
-    delivery = get_delivery_by_id(delivery_id)
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Delivery not found")
-    
-    success = delete_delivery_by_id(delivery_id)
-    if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to delete delivery {delivery_id}")
-    
-    return {"status": "success", "message": "Delivery deleted successfully"}    
-
-# delete all deliveries
-@app.delete("/deliveries/delete")
-async def delete_delivery(execute_code: str):
-    code = "askthatmanheisagooodman"
-    if execute_code != code:
-        raise HTTPException(status_code=403, detail="Invalid code")
-    
-    # Call the delete_all_deliveries function
-    deleted_count = delete_all_deliveries()
-    
-    # Check if any deliveries were deleted
-    if deleted_count == 0:
-        raise HTTPException(status_code=404, detail="No deliveries found to delete")
-    
-    return {"status": "success", "message": f"All deliveries deleted successfully. Total: {deleted_count}"}
-
-
 # ================= Admin Endpoints =================
 
 @app.post("/admin/signup")
@@ -3132,8 +3274,6 @@ async def delete_admin(admin_id: str):
     
     return {"status": "success", "message": "Admin deleted successfully"}    
 
-
-
 # SEND EMAILS
 @app.post("/send-email")
 async def send_custom_email(email_data: EmailRequest):
@@ -3168,7 +3308,6 @@ async def send_custom_email(email_data: EmailRequest):
             status_code=500,
             detail=f"Failed to send email: {str(e)}"
         )
-
 
 def send_push_notification(
     user_id: str, 
@@ -3238,8 +3377,6 @@ def send_push_notification(
         print(f"[PUSH] Error sending notification: {str(e)}")
         return False
 
-
-
 @app.post("/test-notification")
 async def test_notification(
     receiver_id: str = Form(...),
@@ -3304,6 +3441,4 @@ async def register_device(
             return {"status": "error", "message": f"Failed to update {user_type} record"}
             
     except Exception as e:
-        return {"status": "error", "message": f"Error registering device: {str(e)}"}
-        
-# 
+        return {"status": "error", "message": f"Error registering device: {str(e)}"}    
