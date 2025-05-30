@@ -886,6 +886,38 @@ async def permanent_delete_all_deliveries(
         "message": f"All {'archived ' if from_archive else ''}deliveries permanently deleted. Total: {deleted_count}"
     }
     
+    
+    
+# validate deliveries
+def validate_delivery_status(delivery: dict, action: str):
+    """"
+    Validate id the delivery status allows the requested access
+    """
+    
+    current_status = delivery.get("status", {}).get("current", "")
+    
+    # Status transition validations
+    valid_transitions = {
+        "pending": ["accept", "reject"],
+        "ongoing": ["cancel", "complete", "inprogress"],
+        "inprogress": ["complete", "cancel"],
+        "completed": [],  # Completed deliveries cannot be modified
+        "cancelled": [],  # Cancelled deliveries cannot be modified
+        "rejected": ["accept", "undo_reject"]
+    }
+    
+    if current_status not in valid_transitions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid delivery status: {current_status}"
+        )
+        
+    if action not in valid_transitions[current_status]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot {action} a delivery in '{current_status}' status. Valid actions are: {', '.join(valid_transitions[current_status])}"
+        )
+
 # update deliveries
 @app.put("/delivery/{delivery_id}/update")
 async def update_delivery_status(
@@ -907,6 +939,9 @@ async def update_delivery_status(
         rider = get_rider_by_id(rider_id)
         if not rider:
             raise HTTPException(status_code=404, detail="Rider not found")
+        
+        # validate status transition
+        validate_delivery_status(delivery, action)
         
         # Initialize update data
         update_data = {}
