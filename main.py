@@ -77,9 +77,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 
-from fastapi import Request
-from urllib.parse import parse_qsl
-
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         try:
@@ -925,25 +922,14 @@ def validate_delivery_status(delivery: dict, action: str):
 @app.put("/delivery/{delivery_id}/update")
 async def update_delivery_status(
     delivery_id: str,
-    request: Request,
+    rider_id: str = Form(...),
+    action: str = Form(...),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Endpoint to update delivery status and manage rider interactions.
     """
     try:
-        # Get form data from request body
-        body = await request.body()
-        form_data = dict(parse_qsl(body.decode()))
-        
-        rider_id = form_data.get('rider_id')
-        action = form_data.get('action')
-
-        if not rider_id or not action:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required fields: rider_id and action"
-            )
         # Verify delivery exists
         delivery = get_delivery_by_id(delivery_id)
         if not delivery:
@@ -955,13 +941,9 @@ async def update_delivery_status(
             raise HTTPException(status_code=404, detail="Rider not found")
         
         # validate status transition
-        try:
-            validate_delivery_status(delivery, action)
-        except HTTPException as e:
-            print(f"Status validation failed: {str(e)}")
-            raise e
+        # validate_delivery_status(delivery, action)
         
-        # Initialize update_data dictionary
+        # Initialize update data
         update_data = {}
         
         if action == "accept":
