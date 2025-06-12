@@ -650,8 +650,8 @@ async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_
     
     except Exception as e:
         print(f"Error notifying nearby riders: {str(e)}")
-    
-    
+
+
 # ================= Delivery Endpoints =================
 
 
