@@ -2398,25 +2398,31 @@ async def check_user_email(user_type: str, email: str = Form(...)):
     """
     Endpoint to check email.
     """
-    if user_type not in ["rider", "user"]:
+    try:  # Add this try block if it's not already there
+        if user_type not in ["rider", "user"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid user type. Must be 'rider' or 'user'."
+            )
+        
+        # Get user data based on type
+        if user_type == "rider":
+            user_data = get_rider_by_email(email)
+        else:
+            user_data = get_user_by_email(email)
+        
+        exists = bool(user_data)
+        
+        return {
+            "status": "endpoint ran successfully",
+            "message": exists
+        }
+    except Exception as e:  # Add this except block
+        print(f"Error checking email: {str(e)}")
         raise HTTPException(
-            status_code=400,
-            detail="Invalid user type. Must be 'rider' or 'user'."
-        )
-    
-    # Get user data based on type
-    if user_type == "rider":
-        user_data = get_rider_by_email(email)
-    else:
-        user_data = get_user_by_email(email)
-    
-    exists = bool(user_data)
-    
-    
-    return {
-        "status": "endpoint ran successfully",
-         "message": exists
-    }
+            status_code=500,
+            detail=f"Failed to check email: {str(e)}"
+        ) 
     
 
 def parse_location_string(location_str: str) -> dict:
@@ -2576,6 +2582,7 @@ async def create_bike_delivery(request: BikeDeliveryRequest, background_tasks: B
         "delivery_id": delivery_id
     }
 
+
 @app.post("/delivery/car")
 async def create_car_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
@@ -2702,6 +2709,8 @@ async def create_car_delivery(request: CarDeliveryRequest, background_tasks: Bac
                         
                 except Exception as e:
                     print(f"Error sending location-based email notifications: {str(e)}")
+        except Exception as e:
+            print(f"Error sending delivery notifications: {str(e)}")
     
     return {
         "status": "success",

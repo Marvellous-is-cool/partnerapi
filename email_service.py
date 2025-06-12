@@ -3,6 +3,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from typing import List, Optional
+from conf import email_conf
+
 
 class EmailService:
     def __init__(self):
