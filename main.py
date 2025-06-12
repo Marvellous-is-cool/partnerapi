@@ -621,19 +621,19 @@ async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_
         # send email to each nearby rider
         for rider in nearby_riders:
             if rider.get("email") and rider.get("email_notification", True):
-                    background_tasks.add_task(
-                        email_service.send_email,
-                        subject=f"New {vehicle_type.title()} Delivery Available",
-                        recipients=[rider["email"]],
-                        body=email_service.new_delivery_notification_template(
-                            rider["firstname"], 
-                            delivery_id, 
-                            round(rider["distance_km"], 1),
-                            pickup_location.get("address", "Unknown location")
-                        )
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject=f"New {vehicle_type.title()} Delivery Available",
+                    recipients=[rider["email"]],
+                    body=email_service.new_delivery_notification_template(
+                        rider["firstname"], 
+                        delivery_id, 
+                        round(rider["distance_km"], 1),
+                        pickup_location.get("address", "Unknown location")
                     )
+                )
             
-            # Also send push notification if enabled
+                # Also send push notification if enabled
                 if rider.get("push_notification", True):
                     send_push_notification(
                         user_id=rider["_id"],
@@ -646,13 +646,10 @@ async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_
                         }
                     )
             
-            print(f"Notifications sent to {len(nearby_riders)} riders")
+        print(f"Notifications sent to {len(nearby_riders)} riders")
     
     except Exception as e:
         print(f"Error notifying nearby riders: {str(e)}")
-        
-            
-    
     
     
 # ================= Delivery Endpoints =================
@@ -3917,24 +3914,23 @@ async def delete_admin(admin_id: str):
 @app.post("/send-email")
 async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(None)):
     """
-    Endpoint to send custom emails.
+    Endpoint to send custom emails with optional inline image.
     """
     try:
         # Process image if provided
         image_content = None
         image_filename = None
         if image:
-                image_content = await image.read()
-                image_filename = image.filename
-                
-                
+            image_content = await image.read()
+            image_filename = image.filename
+            
         formatted_message = email_service.custom_email_template(email_data.body)
         
         # Send email with or without image attachment
         if image_content:
             success = await email_service.send_email_with_image(
-                subject=subject,
-                recipients=[email],
+                subject=email_data.subject,  # Changed from 'subject' to 'email_data.subject'
+                recipients=[email_data.email],  # Changed from '[email]' to '[email_data.email]'
                 body=formatted_message,
                 image_data=image_content,
                 image_filename=image_filename
@@ -3964,6 +3960,7 @@ async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(N
             status_code=500,
             detail=f"Failed to send email: {str(e)}"
         )
+
 
 def send_push_notification(
     user_id: str, 
