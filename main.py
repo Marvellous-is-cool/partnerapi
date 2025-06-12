@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Query
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Query, WebSocket, WebSocketDisconnect
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from firebase_admin import messaging, credentials
 from database import (
@@ -77,6 +77,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 
+import os
+import json
+import hashlib
+import string
+import random
+from typing import Dict, Set
+
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         try:
@@ -118,6 +125,40 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "detail": "Internal server error"
                 }
             )
+            
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.rider_locations: Dict[str, dict] = {}
+
+    async def connect(self, websocket: WebSocket, rider_id: str):
+        await websocket.accept()
+        self.active_connections[rider_id] = websocket
+        print(f"Rider {rider_id} connected via WebSocket")
+
+    def disconnect(self, rider_id: str):
+        if rider_id in self.active_connections:
+            del self.active_connections[rider_id]
+        print(f"Rider {rider_id} disconnected from WebSocket")
+
+    async def send_personal_message(self, message: dict, rider_id: str):
+        if rider_id in self.active_connections:
+            try:
+                await self.active_connections[rider_id].send_text(json.dumps(message))
+                return True
+            except:
+                self.disconnect(rider_id)
+                return False
+        return False
+
+    async def broadcast_new_delivery(self, message: dict, nearby_rider_ids: list):
+        """Send real-time delivery notifications to nearby riders"""
+        successful_sends = 0
+        for rider_id in nearby_rider_ids:
+            if await self.send_personal_message(message, rider_id):
+                successful_sends += 1
+        return successful_sends
+    
 # import os
 # from onesignal_sdk.client import Client
 # from onesignal_sdk.error import OneSignalHTTPError
@@ -154,6 +195,11 @@ class EmailRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     ids: List[str]
+    
+    
+    
+# Initialize the connection manager
+manager = ConnectionManager()
 
 
 @app.get("/")
@@ -435,6 +481,182 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     
     return radius * c
 
+def find_nearby_riders(pickup_latitude: float, pickup_longitude: float, vehicle_type: str, max_distance_km: float = 10.0):
+    """
+    Find nearby riders for a delivery.
+    """
+    try:
+        # Query for active, online riders with the specified vehicle type
+        query = {
+            "is_online": True,
+            "status": "active",
+            "vehicle_type": vehicle_type.lower()
+        }
+        
+        online_riders = list(riders_collection.find(query))    
+        nearby_riders = []
+        
+        for rider in online_riders:
+            rider_location = rider.get("current_location")
+            if rider_location and "latitude" in rider_location and "longitude" in rider_location:
+                distance = calculate_distance(
+                    pickup_latitude, pickup_longitude,
+                    rider_location["latitude"], rider_location["longitude"]
+                )
+                
+                if distance <= max_distance_km:
+                    rider["_id"] = str(rider["_id"])  # Convert ObjectId to string
+                    rider["distance_km"] = round(distance, 2)
+                    nearby_riders.append(rider)
+                    
+        # Sort by distance - nearest first
+        nearby_riders.sort(key=lambda x: x["distance_km"])
+        return nearby_riders
+    
+    except Exception as e:
+        print(f"Error finding nearby riders: {e}")
+        return []
+
+def calculate_dynamic_radius(delivery_details: dict) -> float:
+    """
+    Calculate search radius based on delivery urgency, value, and other factors
+    """
+    base_radius = 10.0  # Default 10km
+    
+    # Adjust based on delivery speed/urgency
+    delivery_speed = delivery_details.get("deliveryspeed", "standard")
+    if delivery_speed == "express":
+        urgency_multiplier = 1.5  # Wider search for urgent deliveries
+    else:
+        urgency_multiplier = 1.0
+    
+    # Adjust based on delivery value
+    price = delivery_details.get("price", 0)
+    if price >= 100:
+        value_multiplier = 1.8  # Much wider search for high-value deliveries
+    elif price >= 50:
+        value_multiplier = 1.4
+    elif price >= 20:
+        value_multiplier = 1.2
+    else:
+        value_multiplier = 1.0
+    
+    # Adjust based on package size (larger packages need more capable riders)
+    package_size = delivery_details.get("packagesize", "small")
+    if package_size.lower() in ["large", "xl", "extra large"]:
+        size_multiplier = 1.3
+    elif package_size.lower() in ["medium", "m"]:
+        size_multiplier = 1.1
+    else:
+        size_multiplier = 1.0
+    
+    # Adjust based on time of day (wider search during off-peak hours)
+    current_hour = datetime.utcnow().hour
+    if current_hour < 8 or current_hour > 20:  # Early morning or late evening
+        time_multiplier = 1.6
+    elif current_hour < 10 or current_hour > 18:  # Morning or evening
+        time_multiplier = 1.3
+    else:
+        time_multiplier = 1.0
+    
+    # Calculate final radius
+    final_radius = base_radius * urgency_multiplier * value_multiplier * size_multiplier * time_multiplier
+    
+    # Cap the radius (minimum 5km, maximum 50km)
+    final_radius = max(5.0, min(50.0, final_radius))
+    
+    print(f"Dynamic radius calculated: {final_radius:.1f}km (base: {base_radius}, urgency: {urgency_multiplier}, value: {value_multiplier}, size: {size_multiplier}, time: {time_multiplier})")
+    
+    return final_radius
+
+def get_urgency_level(delivery_details: dict) -> str:
+    """Get urgency level for delivery"""
+    delivery_speed = delivery_details.get("deliveryspeed", "standard")
+    price = delivery_details.get("price", 0)
+    
+    if delivery_speed == "express" and price >= 50:
+        return "critical"
+    elif delivery_speed == "express":
+        return "high"
+    elif price >= 30:
+        return "medium"
+    else:
+        return "low"
+
+def calculate_estimated_earnings(delivery_details: dict) -> float:
+    """Calculate estimated earnings for rider"""
+    base_price = delivery_details.get("price", 0)
+    # Assume rider gets 70% of delivery price
+    return round(base_price * 0.7, 2)
+
+
+
+async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_type: str, background_tasks: BackgroundTasks):
+    """
+    Notify nearby riders about a new delivery request.
+    """
+    try:
+        pickup_lat = pickup_location.get("latitude")
+        pickup_lng = pickup_location.get("longitude")
+        
+        if not pickup_lat or not pickup_lng:
+            print("Pickup location coordinates not provided")
+            return
+        
+        # Use dynamic radius calculation
+        max_radius = calculate_dynamic_radius({
+            "deliveryspeed": "standard",  # Default values
+            "price": 0,
+            "packagesize": "medium"
+        })
+        
+        nearby_riders = find_nearby_riders(pickup_lat, pickup_lng, vehicle_type, max_distance_km=max_radius)
+        
+        if not nearby_riders:
+            print(f"No nearby {vehicle_type} riders found for this delivery {delivery_id}, please wait for a while.")
+            return
+        
+        print(f"Found {len(nearby_riders)} nearby riders for delivery {delivery_id}")
+        
+        # send email to each nearby rider
+        for rider in nearby_riders:
+            if rider.get("email") and rider.get("email_notification", True):
+                    background_tasks.add_task(
+                        email_service.send_email,
+                        subject=f"New {vehicle_type.title()} Delivery Available",
+                        recipients=[rider["email"]],
+                        body=email_service.new_delivery_notification_template(
+                            rider["firstname"], 
+                            delivery_id, 
+                            round(rider["distance_km"], 1),
+                            pickup_location.get("address", "Unknown location")
+                        )
+                    )
+            
+            # Also send push notification if enabled
+                if rider.get("push_notification", True):
+                    send_push_notification(
+                        user_id=rider["_id"],
+                        message=f"New {vehicle_type} delivery available {rider['distance_km']:.1f}km away",
+                        title="New Delivery Available",
+                        data={
+                            "type": "new_delivery",
+                            "delivery_id": delivery_id,
+                            "distance_km": rider["distance_km"]
+                        }
+                    )
+            
+            print(f"Notifications sent to {len(nearby_riders)} riders")
+    
+    except Exception as e:
+        print(f"Error notifying nearby riders: {str(e)}")
+        
+            
+    
+    
+    
+# ================= Delivery Endpoints =================
+
 
 # get all online riders
 @app.get("/riders/online")
@@ -480,6 +702,8 @@ async def get_all_online_riders(
                 if distance <= max_distance_km:
                     rider["distance_km"] = round(distance, 2)
                     filtered_riders.append(rider)
+                    
+        filtered_riders.sort(key=lambda x: x["distance_km"])
         online_riders = filtered_riders
     
     return {
@@ -487,6 +711,34 @@ async def get_all_online_riders(
         "count": len(online_riders),
         "riders": online_riders
     }
+
+
+# WebSocket endpoint 
+@app.websocket("/ws/rider/{rider_id}")
+async def websocket_endpoint(websocket: WebSocket, rider_id: str):
+    await manager.connect(websocket, rider_id)
+    try:
+        while True:
+            # Listen for incoming messages (heartbeat, location updates, etc.)
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            # Handle different message types
+            if message.get("type") == "heartbeat":
+                await websocket.send_text(json.dumps({
+                    "type": "heartbeat_ack", 
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+            elif message.get("type") == "location_update":
+                # Update rider location in real-time
+                manager.rider_locations[rider_id] = {
+                    "latitude": message.get("latitude"),
+                    "longitude": message.get("longitude"),
+                    "timestamp": datetime.utcnow()
+                }
+                
+    except WebSocketDisconnect:
+        manager.disconnect(rider_id)
 
 
 @app.get("/riders/{rider_id}")
@@ -1381,6 +1633,59 @@ async def get_delivery_location(delivery_id: str):
             detail=f"Failed to get rider location: {str(e)}"
         )
 
+@app.get("/riders/{rider_id}/available-deliveries")
+async def get_available_deliveries_for_rider(
+    rider_id: str,
+    max_distance_km: float = 10.0
+):
+    """Get available deliveries near a rider's current location"""
+    try:
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        rider_location = rider.get("current_location")
+        if not rider_location:
+            return {
+                "status": "success",
+                "available_deliveries": [],
+                "message": "No location available for rider"
+            }
+        
+        # Find pending deliveries near rider
+        pending_deliveries = list(delivery_collection.find({
+            "status.current": "pending",
+            "vehicletype": rider.get("vehicle_type"),
+            "rider_id": None
+        }))
+        
+        nearby_deliveries = []
+        for delivery in pending_deliveries:
+            pickup_location = delivery.get("startpoint", {})
+            if pickup_location.get("latitude") and pickup_location.get("longitude"):
+                distance = calculate_distance(
+                    rider_location["latitude"], rider_location["longitude"],
+                    pickup_location["latitude"], pickup_location["longitude"]
+                )
+                
+                if distance <= max_distance_km:
+                    delivery["_id"] = str(delivery["_id"])
+                    delivery["distance_km"] = round(distance, 2)
+                    nearby_deliveries.append(delivery)
+        
+        # Sort by distance
+        nearby_deliveries.sort(key=lambda x: x["distance_km"])
+        
+        return {
+            "status": "success",
+            "available_deliveries": nearby_deliveries[:10],  # Limit to 10 nearest
+            "count": len(nearby_deliveries)
+        }
+        
+    except Exception as e:
+        print(f"Error getting available deliveries: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.put("/riders/{rider_id}/activate")
 async def activate_rider(rider_id: str):
     """
@@ -1433,6 +1738,66 @@ async def activate_rider(rider_id: str):
         "rider_id": rider_id
     }
 
+@app.put("/riders/{rider_id}/location")
+async def update_rider_location(
+    rider_id: str,
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    address: Optional[str] = Form(None)
+):
+    """Update rider's current location and check for nearby deliveries"""
+    try:
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        location_data = {
+            "current_location": {
+                "latitude": latitude,
+                "longitude": longitude,
+                "address": address,
+                "last_updated": datetime.utcnow()
+            },
+            "last_activity": datetime.utcnow()
+        }
+        
+        success = update_rider_details_db(rider_id, location_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update location")
+        
+        # Check for nearby pending deliveries
+        available_deliveries = []
+        pending_deliveries = list(delivery_collection.find({
+            "status.current": "pending",
+            "vehicletype": rider.get("vehicle_type"),
+            "rider_id": None
+        }))
+        
+        for delivery in pending_deliveries:
+            pickup_location = delivery.get("startpoint", {})
+            if pickup_location.get("latitude") and pickup_location.get("longitude"):
+                distance = calculate_distance(
+                    latitude, longitude,
+                    pickup_location["latitude"], pickup_location["longitude"]
+                )
+                
+                if distance <= 5.0:  # Within 5km
+                    delivery["_id"] = str(delivery["_id"])
+                    delivery["distance_km"] = round(distance, 2)
+                    available_deliveries.append(delivery)
+        
+        return {
+            "status": "success",
+            "message": "Location updated successfully",
+            "location": location_data["current_location"],
+            "nearby_deliveries": len(available_deliveries),
+            "available_deliveries": available_deliveries[:3]  # Show top 3
+        }
+        
+    except Exception as e:
+        print(f"Error updating rider location: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update location: {str(e)}")
 
 @app.put("/riders/{rider_id}/update")
 async def update_rider_details(
@@ -2056,8 +2421,29 @@ async def check_user_email(user_type: str, email: str = Form(...)):
          "message": exists
     }
     
+
+def parse_location_string(location_str: str) -> dict:
+    """
+    Parse location string to extract coordinates and address
+    Expected format: JSON string like '{"latitude": 6.5244, "longitude": 3.3792, "address": "Lagos, Nigeria"}'
+    """
+    try:
+        if isinstance(location_str, str):
+            # Try to parse as JSON first
+            location_dict = json.loads(location_str)
+            return location_dict
+        elif isinstance(location_str, dict):
+            # Already a dictionary
+            return location_str
+        else:
+            # Plain address string, no coordinates
+            return {"address": str(location_str), "latitude": None, "longitude": None}
+    except json.JSONDecodeError:
+        # If JSON parsing fails, treat as plain address
+        return {"address": location_str, "latitude": None, "longitude": None}
+    
 @app.post("/delivery/bike")
-async def create_bike_delivery(request: BikeDeliveryRequest):
+async def create_bike_delivery(request: BikeDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Endpoint to create a new bike delivery request.
     """
@@ -2082,13 +2468,17 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
             detail="Invalid delivery speed. Choose 'express' or 'standard'."
         )
     
+    # Parse location data
+    startpoint_data = parse_location_string(request.startpoint)
+    endpoint_data = parse_location_string(request.endpoint)
+    
     # Prepare the delivery data
     delivery_data = {
         "user_id": request.user_id,
         "price": request.price,
         "distance": request.distance,
-        "startpoint": request.startpoint,
-        "endpoint": request.endpoint,
+        "startpoint": startpoint_data,
+        "endpoint": endpoint_data,
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
@@ -2154,8 +2544,31 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
                                 "distance": request.distance,
                             }
                         )
+                    print(f"Push notifications sent to {len(matching_riders)} riders")
+                        
                 except Exception as e:
                     print(f"Error notifying riders: {str(e)}")
+                    
+
+                # 3. SEND EMAIL NOTIFICATION TO NEARBY RIDERS
+                try:
+                    # Check if we have location coordinates in parsed startpoint
+                    if (startpoint_data.get("latitude") and 
+                        startpoint_data.get("longitude")):
+                        
+                        # Send location-based email notifications to nearby riders
+                        await notify_nearby_riders(
+                            delivery_id,
+                            startpoint_data,  # Use parsed location data
+                            request.vehicletype.lower(),
+                            background_tasks
+                        )
+                        print(f"Location-based email notifications sent for delivery {delivery_id}")
+                    else:
+                        print(f"No location coordinates provided for delivery {delivery_id}")
+                        
+                except Exception as e:
+                    print(f"Error sending location-based email notifications: {str(e)}")
                     
         except Exception as e:
             print(f"Error sending delivery notifications: {str(e)}")
@@ -2167,7 +2580,7 @@ async def create_bike_delivery(request: BikeDeliveryRequest):
     }
 
 @app.post("/delivery/car")
-async def create_car_delivery(request: CarDeliveryRequest):
+async def create_car_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Endpoint to create a new car delivery request.
     """
@@ -2191,6 +2604,10 @@ async def create_car_delivery(request: CarDeliveryRequest):
             status_code=400,
             detail="Invalid delivery speed. Choose 'express' or 'standard'."
         )
+        
+    # Parse location data
+    startpoint_data = parse_location_string(request.startpoint)
+    endpoint_data = parse_location_string(request.endpoint)
     
     # Prepare the delivery data
     delivery_data = {
@@ -2263,11 +2680,31 @@ async def create_car_delivery(request: CarDeliveryRequest):
                                 "distance": request.distance,
                             }
                         )
+                    print(f"Push notifications sent to {len(matching_riders)} riders")
+                        
                 except Exception as e:
                     print(f"Error notifying riders: {str(e)}")
                     
-        except Exception as e:
-            print(f"Error sending delivery notifications: {str(e)}")
+
+                # 3. SEND EMAIL NOTIFICATION TO NEARBY RIDERS
+                try:
+                    # Check if we have location coordinates in parsed startpoint
+                    if (startpoint_data.get("latitude") and 
+                        startpoint_data.get("longitude")):
+                        
+                        # Send location-based email notifications to nearby riders
+                        await notify_nearby_riders(
+                            delivery_id,
+                            startpoint_data,  # Use parsed location data
+                            request.vehicletype.lower(),
+                            background_tasks
+                        )
+                        print(f"Location-based email notifications sent for delivery {delivery_id}")
+                    else:
+                        print(f"No location coordinates provided for delivery {delivery_id}")
+                        
+                except Exception as e:
+                    print(f"Error sending location-based email notifications: {str(e)}")
     
     return {
         "status": "success",
@@ -2276,12 +2713,12 @@ async def create_car_delivery(request: CarDeliveryRequest):
     }
 
 @app.post("/delivery/bus-truck")
-async def create_car_delivery(request: CarDeliveryRequest):
+async def create_car_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Endpoint to create a new car delivery request.
     """
     # Validate vehicle type
-    if request.vehicletype.lower() != "bus" or request.vehicletype.lower() != "truck":
+    if request.vehicletype.lower() not in ["bus", "truck"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid vehicle type. Must be 'bus' or 'truck."
@@ -2294,12 +2731,16 @@ async def create_car_delivery(request: CarDeliveryRequest):
             detail="Invalid transaction type. Choose 'cash' or 'online'."
         )
     
-    # Validate delivery speed
-    if request.deliveryspeed.lower() not in ["bus", "truck"]:
+    # Fix delivery speed validation
+    if request.deliveryspeed.lower() not in ["express", "standard"]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid delivery speed. Choose 'bus' or 'truck'."
+            detail="Invalid delivery speed. Choose 'express' or 'standard'."
         )
+        
+    # Parse location data
+    startpoint_data = parse_location_string(request.startpoint)
+    endpoint_data = parse_location_string(request.endpoint)
     
     # Prepare the delivery data
     delivery_data = {
@@ -2372,8 +2813,31 @@ async def create_car_delivery(request: CarDeliveryRequest):
                                 "distance": request.distance,
                             }
                         )
+                    print(f"Push notifications sent to {len(matching_riders)} riders")
+                        
                 except Exception as e:
                     print(f"Error notifying riders: {str(e)}")
+                    
+
+                # 3. SEND EMAIL NOTIFICATION TO NEARBY RIDERS
+                try:
+                    # Check if we have location coordinates in parsed startpoint
+                    if (startpoint_data.get("latitude") and 
+                        startpoint_data.get("longitude")):
+                        
+                        # Send location-based email notifications to nearby riders
+                        await notify_nearby_riders(
+                            delivery_id,
+                            startpoint_data,  # Use parsed location data
+                            request.vehicletype.lower(),
+                            background_tasks
+                        )
+                        print(f"Location-based email notifications sent for delivery {delivery_id}")
+                    else:
+                        print(f"No location coordinates provided for delivery {delivery_id}")
+                        
+                except Exception as e:
+                    print(f"Error sending location-based email notifications: {str(e)}")
                     
         except Exception as e:
             print(f"Error sending delivery notifications: {str(e)}")
@@ -3451,19 +3915,36 @@ async def delete_admin(admin_id: str):
 
 # SEND EMAILS
 @app.post("/send-email")
-async def send_custom_email(email_data: EmailRequest):
+async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(None)):
     """
     Endpoint to send custom emails.
     """
     try:
+        # Process image if provided
+        image_content = None
+        image_filename = None
+        if image:
+                image_content = await image.read()
+                image_filename = image.filename
+                
+                
         formatted_message = email_service.custom_email_template(email_data.body)
         
-        # Send email synchronously for testing
-        success = await email_service.send_email(
-            subject=email_data.subject,
-            recipients=[email_data.email],
-            body=formatted_message
-        )
+        # Send email with or without image attachment
+        if image_content:
+            success = await email_service.send_email_with_image(
+                subject=subject,
+                recipients=[email],
+                body=formatted_message,
+                image_data=image_content,
+                image_filename=image_filename
+            )
+        else: 
+            success = await email_service.send_email(
+                subject=email_data.subject,
+                recipients=[email_data.email],
+                body=formatted_message
+            )
         
         if not success:
             raise HTTPException(

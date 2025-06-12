@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+
 class RiderSignup(BaseModel):
     firstname: str
     lastname: str
