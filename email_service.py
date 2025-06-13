@@ -1,11 +1,11 @@
 import smtplib
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from typing import List, Optional
 from conf import email_conf
 from fastapi_mail import FastMail, MessageSchema
-import ssl
 from PIL import Image
 import io
 
@@ -17,12 +17,17 @@ class EmailService:
         self.smtp_host = email_conf.MAIL_SERVER
         self.smtp_port = email_conf.MAIL_PORT
         self.smtp_user = email_conf.MAIL_USERNAME
-        self.smtp_password = email_conf.MAIL_PASSWORD
+        
+        # Extract actual string from SecretStr object
+        if hasattr(email_conf.MAIL_PASSWORD, "get_secret_value"):
+            self.smtp_password = email_conf.MAIL_PASSWORD.get_secret_value()
+        else:
+            self.smtp_password = email_conf.MAIL_PASSWORD
+            
         self.smtp_from = email_conf.MAIL_FROM
         self.use_ssl = email_conf.MAIL_SSL_TLS
         self.use_tls = email_conf.MAIL_STARTTLS
         
-        # Print connection info at startup
         print(f"Email Service initialized with: {self.smtp_host}:{self.smtp_port}")
         print(f"SSL: {self.use_ssl}, TLS: {self.use_tls}")
     
@@ -100,7 +105,8 @@ class EmailService:
                 server.set_debuglevel(1)  # Enable debug output
                 
                 print(f"Authenticating as {self.smtp_user}...")
-                server.login(self.smtp_user, self.smtp_password)
+                # Make sure password is a string, not SecretStr
+                server.login(self.smtp_user, self.smtp_password) 
                 
                 print(f"Sending email to {recipients}...")
                 server.sendmail(self.smtp_from, recipients, msg_root.as_string())
