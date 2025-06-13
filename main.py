@@ -3930,12 +3930,10 @@ async def delete_admin(admin_id: str):
 # SEND EMAILS
 @app.post("/send-email")
 async def send_custom_email(
-    # Form data parameters (for multipart/form-data)
     email: Optional[str] = Form(None),
     subject: Optional[str] = Form(None),
     body: Optional[str] = Form(None),
     image: Optional[UploadFile] = None,
-    # JSON body parameter (for application/json)
     json_data: Optional[EmailWithAttachments] = Body(None)
 ):
     """
@@ -3957,6 +3955,7 @@ async def send_custom_email(
             if json_data.attachments and len(json_data.attachments) > 0:
                 # Take the first attachment
                 attachment = json_data.attachments[0]
+                import base64
                 image_content = base64.b64decode(attachment['content'])
                 image_filename = attachment.get('filename', 'image.jpg')
         else:
@@ -4018,7 +4017,6 @@ async def send_custom_email(
             status_code=500,
             detail=f"Failed to send email: {str(e)}"
         )
-
 
 def send_push_notification(
     user_id: str, 
