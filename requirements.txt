@@ -39,6 +39,7 @@ google-cloud-storage==2.8.0
 # Utilities
 httpx==0.28.1  # HTTP client for making requests
 tenacity==8.2.3  # For retry logic
+Pillow
 # Removed specific Pillow version to avoid build issues
 
 # Development tools (optional, can be moved to dev-requirements.txt)
