@@ -3929,48 +3929,27 @@ async def delete_admin(admin_id: str):
 
 # SEND EMAILS
 @app.post("/send-email")
-async def send_custom_email(
-    email: Optional[str] = Form(None),
-    subject: Optional[str] = Form(None),
-    body: Optional[str] = Form(None),
-    image: Optional[UploadFile] = None,
-    json_data: Optional[EmailWithAttachments] = Body(None)
-):
+async def send_custom_email(json_data: EmailWithAttachments):
     """
     Endpoint to send custom emails with optional inline image.
-    Supports both multipart/form-data AND application/json formats.
+    Only supports JSON format with optional base64-encoded images.
     """
     try:
-        # Determine which format is being used
-        if json_data:
-            # JSON format with base64 attachments
-            email_addr = json_data.email
-            email_subject = json_data.subject
-            email_body = json_data.body
-            
-            # Process base64 attachments
-            image_content = None
-            image_filename = None
-            
-            if json_data.attachments and len(json_data.attachments) > 0:
-                # Take the first attachment
-                attachment = json_data.attachments[0]
-                import base64
-                image_content = base64.b64decode(attachment['content'])
-                image_filename = attachment.get('filename', 'image.jpg')
-        else:
-            # Form data format (existing logic)
-            email_addr = email
-            email_subject = subject
-            email_body = body
-            
-            # Process uploaded file
-            image_content = None
-            image_filename = None
-            
-            if image and hasattr(image, "filename") and image.filename:
-                image_content = await image.read()
-                image_filename = image.filename
+        # Process the JSON data
+        email_addr = json_data.email
+        email_subject = json_data.subject
+        email_body = json_data.body
+        
+        # Process base64 attachments
+        image_content = None
+        image_filename = None
+        
+        if json_data.attachments and len(json_data.attachments) > 0:
+            # Take the first attachment
+            attachment = json_data.attachments[0]
+            import base64
+            image_content = base64.b64decode(attachment['content'])
+            image_filename = attachment.get('filename', 'image.jpg')
         
         # Validate required fields
         if not email_addr or not email_subject or not email_body:
@@ -4007,8 +3986,7 @@ async def send_custom_email(
         return {
             "status": "success",
             "message": "Email sent successfully",
-            "recipient": email_addr,
-            "format_used": "json" if json_data else "form_data"
+            "recipient": email_addr
         }
         
     except Exception as e:
@@ -4017,6 +3995,8 @@ async def send_custom_email(
             status_code=500,
             detail=f"Failed to send email: {str(e)}"
         )
+        
+        
 
 def send_push_notification(
     user_id: str, 
