@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Body, Query, WebSocket, WebSocketDisconnect
 from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from firebase_admin import messaging, credentials
+import base64
 from database import (
     get_all_deliveries,
     get_delivery_by_id,
@@ -158,6 +159,13 @@ class ConnectionManager:
             if await self.send_personal_message(message, rider_id):
                 successful_sends += 1
         return successful_sends
+    
+    
+class EmailWithAttachments(BaseModel):
+    email: str
+    subject: str
+    body: str
+    attachments: Optional[List[dict]] = None
     
 # import os
 # from onesignal_sdk.client import Client
@@ -3922,38 +3930,72 @@ async def delete_admin(admin_id: str):
 # SEND EMAILS
 @app.post("/send-email")
 async def send_custom_email(
-    email: str = Form(...),
-    subject: str = Form(...),
-    body: str = Form(...),
-    image: Optional[UploadFile] = None
+    # Form data parameters (for multipart/form-data)
+    email: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    body: Optional[str] = Form(None),
+    image: Optional[UploadFile] = None,
+    # JSON body parameter (for application/json)
+    json_data: Optional[EmailWithAttachments] = Body(None)
 ):
     """
     Endpoint to send custom emails with optional inline image.
+    Supports both multipart/form-data AND application/json formats.
     """
     try:
-        # Process image if provided
-        image_content = None
-        image_filename = None
-        
-        if image and hasattr(image, "filename") and image.filename:
-            image_content = await image.read()
-            image_filename = image.filename
+        # Determine which format is being used
+        if json_data:
+            # JSON format with base64 attachments
+            email_addr = json_data.email
+            email_subject = json_data.subject
+            email_body = json_data.body
             
-        formatted_message = email_service.custom_email_template(body, has_image=bool(image_content))
+            # Process base64 attachments
+            image_content = None
+            image_filename = None
+            
+            if json_data.attachments and len(json_data.attachments) > 0:
+                # Take the first attachment
+                attachment = json_data.attachments[0]
+                image_content = base64.b64decode(attachment['content'])
+                image_filename = attachment.get('filename', 'image.jpg')
+        else:
+            # Form data format (existing logic)
+            email_addr = email
+            email_subject = subject
+            email_body = body
+            
+            # Process uploaded file
+            image_content = None
+            image_filename = None
+            
+            if image and hasattr(image, "filename") and image.filename:
+                image_content = await image.read()
+                image_filename = image.filename
+        
+        # Validate required fields
+        if not email_addr or not email_subject or not email_body:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: email, subject, or body"
+            )
+        
+        # Format the message using existing template
+        formatted_message = email_service.custom_email_template(email_body, has_image=bool(image_content))
         
         # Send email with or without image attachment
         if image_content:
             success = await email_service.send_email_with_image(
-                subject=subject,
-                recipients=[email],
+                subject=email_subject,
+                recipients=[email_addr],
                 body=formatted_message,
                 image_data=image_content,
                 image_filename=image_filename
             )
         else: 
             success = await email_service.send_email(
-                subject=subject,
-                recipients=[email],
+                subject=email_subject,
+                recipients=[email_addr],
                 body=formatted_message
             )
         
@@ -3966,7 +4008,8 @@ async def send_custom_email(
         return {
             "status": "success",
             "message": "Email sent successfully",
-            "recipient": email
+            "recipient": email_addr,
+            "format_used": "json" if json_data else "form_data"
         }
         
     except Exception as e:
