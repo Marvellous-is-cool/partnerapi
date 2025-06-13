@@ -23,36 +23,34 @@ class EmailService:
         The image can be referenced in the HTML body using <img src="cid:inline_image">
         """
         try:
-            # Create a multipart message
-            message = MIMEMultipart('related')
-            message["Subject"] = subject
-            message["From"] = self.fastmail.config.MAIL_FROM
-            message["To"] = ", ".join(recipients)
+            # For better email client compatibility, create a multipart/alternative message
+            message = MessageSchema(
+                subject=subject,
+                recipients=recipients,
+                # Use HTML subtype directly with FastAPI Mail
+                subtype=MessageType.html,
+                body=body,
+                # No need to create your own MIME message
+                # FastAPI Mail will handle the MIME structure properly
+            )
             
-            # Attach HTML body
-            html_part = MIMEText(body, "html")
-            message.attach(html_part)
+            attachments = []
             
-            # Attach image with Content-ID for inline reference
             if image_data:
+                from email.mime.image import MIMEImage
+                # Create image attachment with content ID for inline reference
                 img = MIMEImage(image_data)
                 img.add_header('Content-ID', '<inline_image>')
                 img.add_header('Content-Disposition', 'inline', filename=image_filename or "image.jpg")
-                message.attach(img)
-            
-            # Create MessageSchema for fastapi-mail
-            email_msg = MessageSchema(
-                subject=subject,
-                recipients=recipients,
-                body=message.as_string(),
-                subtype=MessageType.plain  # We're providing the full MIME message
-            )
+                
+                # Add as an attachment
+                attachments.append(img)
             
             print(f"Attempting to send email with image to: {recipients}")
             print(f"Subject: {subject}")
             
-            # Send the email
-            await self.fastmail.send_message(email_msg)
+            # Send the email with attachments
+            await self.fastmail.send_message(message, attachments=attachments)
             print("Email with image sent successfully")
             return True
             
@@ -61,6 +59,7 @@ class EmailService:
             print(f"Recipients: {recipients}")
             print(f"Subject: {subject}")
             return False
+        
 
     async def send_email(self, subject: str, recipients: List[str], body: str) -> bool:
         """

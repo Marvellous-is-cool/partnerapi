@@ -3921,10 +3921,12 @@ async def delete_admin(admin_id: str):
 
 # SEND EMAILS
 @app.post("/send-email")
-async def send_custom_email(email: str = Form(...),
+async def send_custom_email(
+    email: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...),
-    image: UploadFile = File(None)):
+    image: Optional[UploadFile] = None
+):
     """
     Endpoint to send custom emails with optional inline image.
     """
@@ -3932,7 +3934,8 @@ async def send_custom_email(email: str = Form(...),
         # Process image if provided
         image_content = None
         image_filename = None
-        if image:
+        
+        if image and hasattr(image, "filename") and image.filename:
             image_content = await image.read()
             image_filename = image.filename
             
