@@ -23,34 +23,41 @@ class EmailService:
         The image can be referenced in the HTML body using <img src="cid:inline_image">
         """
         try:
-            # For better email client compatibility, create a multipart/alternative message
-            message = MessageSchema(
-                subject=subject,
-                recipients=recipients,
-                # Use HTML subtype directly with FastAPI Mail
-                subtype=MessageType.html,
-                body=body,
-                # No need to create your own MIME message
-                # FastAPI Mail will handle the MIME structure properly
-            )
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.image import MIMEImage
+            from fastapi_mail import MessageSchema, MessageType
             
-            attachments = []
+            # Create a multipart/related message
+            message_container = MIMEMultipart('related')
+            message_container["Subject"] = subject
+            message_container["From"] = self.fastmail.config.MAIL_FROM
+            message_container["To"] = ", ".join(recipients)
             
+            # Add HTML part
+            html_part = MIMEText(body, "html")
+            message_container.attach(html_part)
+            
+            # Add image if provided
             if image_data:
-                from email.mime.image import MIMEImage
-                # Create image attachment with content ID for inline reference
                 img = MIMEImage(image_data)
                 img.add_header('Content-ID', '<inline_image>')
                 img.add_header('Content-Disposition', 'inline', filename=image_filename or "image.jpg")
-                
-                # Add as an attachment
-                attachments.append(img)
+                message_container.attach(img)
+            
+            # Create MessageSchema with the complete MIME message
+            email_msg = MessageSchema(
+                subject=subject,
+                recipients=recipients,
+                body=message_container.as_string(),
+                subtype=MessageType.plain  # Using plain because we're providing the full MIME message
+            )
             
             print(f"Attempting to send email with image to: {recipients}")
             print(f"Subject: {subject}")
             
-            # Send the email with attachments
-            await self.fastmail.send_message(message, attachments=attachments)
+            # Send the email
+            await self.fastmail.send_message(email_msg)
             print("Email with image sent successfully")
             return True
             
@@ -178,7 +185,9 @@ class EmailService:
         """
     
     
-    def custom_email_template(self, message: str) -> str:
+    def custom_email_template(self, message: str, has_image: bool = False) -> str:
+        image_placeholder = '<img src="cid:inline_image" style="max-width: 100%; margin: 20px 0;" alt="Attached Image">' if has_image else ''
+        
         return f"""
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
@@ -186,6 +195,7 @@ class EmailService:
             <div style="font-size: 16px; color: #555;">
                 {message}
             </div>
+            {image_placeholder}
             <hr style="margin: 20px 0;">
             <p style="font-size: 12px; color: #999;">
                 This email was sent from Mico's platform. If you have questions, reply to this message or contact support.

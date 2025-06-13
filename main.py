@@ -3939,7 +3939,7 @@ async def send_custom_email(
             image_content = await image.read()
             image_filename = image.filename
             
-        formatted_message = email_service.custom_email_template(body)
+        formatted_message = email_service.custom_email_template(body, has_image=bool(image_content))
         
         # Send email with or without image attachment
         if image_content:
