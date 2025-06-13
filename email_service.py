@@ -23,10 +23,18 @@ class EmailService:
         The image can be referenced in the HTML body using <img src="cid:inline_image">
         """
         try:
+            # If no image, just use regular send_email method
+            if not image_data:
+                return await self.send_email(subject, recipients, body)
+            
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
             from email.mime.image import MIMEImage
             from fastapi_mail import MessageSchema, MessageType
+            import uuid
+        
+            # Generate unique ID for this email
+            email_id = str(uuid.uuid4())
             
             # Create a multipart/related message
             message_container = MIMEMultipart('related')
@@ -36,25 +44,23 @@ class EmailService:
             
             # Add HTML part
             html_part = MIMEText(body, "html")
-            message_container.attach(html_part)
+            message.attach(html_part)
             
             # Add image if provided
             if image_data:
-                img = MIMEImage(image_data)
-                img.add_header('Content-ID', '<inline_image>')
-                img.add_header('Content-Disposition', 'inline', filename=image_filename or "image.jpg")
-                message_container.attach(img)
+                image = MIMEImage(image_data)
+                image_cid = f'<inline_image_{email_id}>'
+                image.add_header('Content-ID', image_cid)
+                image.add_header('Content-Disposition', 'inline', filename=image_filename or 'image.jpg')
+                message.attach(image)
             
             # Create MessageSchema with the complete MIME message
             email_msg = MessageSchema(
                 subject=subject,
                 recipients=recipients,
-                body=message_container.as_string(),
+                body=message.as_string(),
                 subtype=MessageType.plain  # Using plain because we're providing the full MIME message
             )
-            
-            print(f"Attempting to send email with image to: {recipients}")
-            print(f"Subject: {subject}")
             
             # Send the email
             await self.fastmail.send_message(email_msg)
