@@ -4,75 +4,43 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from typing import List, Optional
 from conf import email_conf
-
+from fastapi_mail import MessageSchema, MessageType, FastMail
+from email.mime.image import MIMEImage
 
 class EmailService:
     def __init__(self):
         self.fastmail = FastMail(email_conf)
-        
+
     async def send_email_with_image(
         self,
         subject: str,
-        recipients: List[str],
+        recipients: list[str],
         body: str,
-        image_data: Optional[bytes] = None,
-        image_filename: Optional[str] = None
+        image_data: bytes,
+        image_filename: str
     ) -> bool:
-        """
-        Send an email with an optional inline image attachment.
-        The image can be referenced in the HTML body using <img src="cid:inline_image">
-        """
         try:
-            # If no image, just use regular send_email method
-            if not image_data:
-                return await self.send_email(subject, recipients, body)
-            
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-            from email.mime.image import MIMEImage
-            from fastapi_mail import MessageSchema, MessageType
-            import uuid
-        
-            # Generate unique ID for this email
-            email_id = str(uuid.uuid4())
-            
-            # Create a multipart/related message
-            message= MIMEMultipart('related')
-            message["Subject"] = subject
-            message["From"] = self.fastmail.config.MAIL_FROM
-            message["To"] = ", ".join(recipients)
-            
-            # Add HTML part
-            html_part = MIMEText(body, "html")
-            message.attach(html_part)
-            
-            # Add image if provided
-            if image_data:
-                image = MIMEImage(image_data)
-                image_cid = f'<inline_image_{email_id}>'
-                image.add_header('Content-ID', image_cid)
-                image.add_header('Content-Disposition', 'inline', filename=image_filename or 'image.jpg')
-                message.attach(image)
-            
-            # Create MessageSchema with the complete MIME message
-            email_msg = MessageSchema(
+            # Create the image part for inline attachment
+            image = MIMEImage(image_data)
+            image.add_header('Content-ID', '<inline_image>')
+            image.add_header('Content-Disposition', 'inline', filename=image_filename)
+
+            # MessageSchema expects just the HTML body, not the full MIME message
+            message = MessageSchema(
                 subject=subject,
                 recipients=recipients,
-                body=message.as_string(),
-                subtype=MessageType.plain  # Using plain because we're providing the full MIME message
+                body=body,  # just HTML here
+                subtype="html",
+                attachments=[image]
             )
-            
-            # Send the email
-            await self.fastmail.send_message(email_msg)
+
+            await self.fastmail.send_message(message)
             print("Email with image sent successfully")
             return True
-            
+
         except Exception as e:
             print(f"Error sending email with image: {str(e)}")
-            print(f"Recipients: {recipients}")
-            print(f"Subject: {subject}")
-            return False
-        
+            return False        
 
     async def send_email(self, subject: str, recipients: List[str], body: str) -> bool:
         """
