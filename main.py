@@ -3921,7 +3921,10 @@ async def delete_admin(admin_id: str):
 
 # SEND EMAILS
 @app.post("/send-email")
-async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(None)):
+async def send_custom_email(email: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    image: UploadFile = File(None)):
     """
     Endpoint to send custom emails with optional inline image.
     """
@@ -3933,21 +3936,21 @@ async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(N
             image_content = await image.read()
             image_filename = image.filename
             
-        formatted_message = email_service.custom_email_template(email_data.body)
+        formatted_message = email_service.custom_email_template(body)
         
         # Send email with or without image attachment
         if image_content:
             success = await email_service.send_email_with_image(
-                subject=email_data.subject,  # Changed from 'subject' to 'email_data.subject'
-                recipients=[email_data.email],  # Changed from '[email]' to '[email_data.email]'
+                subject=subject,
+                recipients=[email],
                 body=formatted_message,
                 image_data=image_content,
                 image_filename=image_filename
             )
         else: 
             success = await email_service.send_email(
-                subject=email_data.subject,
-                recipients=[email_data.email],
+                subject=subject,
+                recipients=[email],
                 body=formatted_message
             )
         
@@ -3960,7 +3963,7 @@ async def send_custom_email(email_data: EmailRequest, image: UploadFile = File(N
         return {
             "status": "success",
             "message": "Email sent successfully",
-            "recipient": email_data.email
+            "recipient": email
         }
         
     except Exception as e:
