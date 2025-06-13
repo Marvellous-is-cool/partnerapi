@@ -1,50 +1,66 @@
-from fastapi_mail import FastMail, MessageSchema, MessageType
+import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from typing import List, Optional
 from conf import email_conf
-from fastapi_mail import MessageSchema, MessageType, FastMail
-from email.mime.image import MIMEImage
+from fastapi_mail import FastMail, MessageSchema
 
 class EmailService:
     def __init__(self):
+        # For FastAPI-Mail (simple HTML emails)
         self.fastmail = FastMail(email_conf)
+        # For direct SMTP (inline images)
+        self.smtp_host = email_conf.MAIL_SERVER
+        self.smtp_port = email_conf.MAIL_PORT
+        self.smtp_user = email_conf.MAIL_USERNAME
+        self.smtp_password = email_conf.MAIL_PASSWORD
+        self.smtp_from = email_conf.MAIL_FROM
 
     async def send_email_with_image(
         self,
         subject: str,
-        recipients: list[str],
+        recipients: List[str],
         body: str,
         image_data: bytes,
         image_filename: str
     ) -> bool:
+        """
+        Send an email with a true inline image (referenced as <img src="cid:inline_image">).
+        Uses smtplib and email.mime for full MIME control.
+        """
         try:
-            # Create the image part for inline attachment
+            msg_root = MIMEMultipart('related')
+            msg_root['Subject'] = subject
+            msg_root['From'] = self.smtp_from
+            msg_root['To'] = ", ".join(recipients)
+
+            # Alternative part for HTML body
+            msg_alternative = MIMEMultipart('alternative')
+            msg_root.attach(msg_alternative)
+            msg_alternative.attach(MIMEText(body, 'html'))
+
+            # Attach the image as inline
             image = MIMEImage(image_data)
             image.add_header('Content-ID', '<inline_image>')
             image.add_header('Content-Disposition', 'inline', filename=image_filename)
+            msg_root.attach(image)
 
-            # MessageSchema expects just the HTML body, not the full MIME message
-            message = MessageSchema(
-                subject=subject,
-                recipients=recipients,
-                body=body,  # just HTML here
-                subtype="html",
-                attachments=[image]
-            )
-
-            await self.fastmail.send_message(message)
+            # Send via SMTP
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                if self.smtp_port == 587:
+                    server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.smtp_from, recipients, msg_root.as_string())
             print("Email with image sent successfully")
             return True
-
         except Exception as e:
             print(f"Error sending email with image: {str(e)}")
-            return False        
+            return False
 
     async def send_email(self, subject: str, recipients: List[str], body: str) -> bool:
         """
-        Send an email using FastAPI Mail.
+        Send an email using FastAPI Mail (HTML only, no inline images).
         """
         try:
             message = MessageSchema(
@@ -53,20 +69,13 @@ class EmailService:
                 body=body,
                 subtype="html"
             )
-            
-            print(f"Attempting to send email to: {recipients}")
-            print(f"Subject: {subject}")
-            
             await self.fastmail.send_message(message)
             print("Email sent successfully")
             return True
-            
         except Exception as e:
             print(f"Error sending email: {str(e)}")
-            print(f"Recipients: {recipients}")
-            print(f"Subject: {subject}")
             return False
-        
+
     def rider_signup_template(self, firstname: str) -> str:
         return f"""
         <html>
@@ -96,7 +105,7 @@ class EmailService:
         </body>
         </html>
         """
- 
+
     def user_signup_template(self, firstname: str) -> str:
         return f"""
         <html>
@@ -113,7 +122,7 @@ class EmailService:
         </body>
         </html>
         """
-   
+
     def delivery_template(self, status: str, delivery_id: str) -> str:
         return f"""
         <html>
@@ -131,7 +140,6 @@ class EmailService:
         </html>
         """
 
-    
     def new_delivery_notification_template(self, rider_name: str, delivery_id: str, distance_km: float, pickup_address: str) -> str:
         return f"""
         <html>
@@ -139,15 +147,12 @@ class EmailService:
             <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
             <h2 style="color: #333;">🚚 New Delivery Available, {rider_name}!</h2>
             <p style="font-size: 16px; color: #555;">A new delivery request is available near your location.</p>
-            
             <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
                 <p style="margin: 5px 0;"><strong>Delivery ID:</strong> {delivery_id}</p>
                 <p style="margin: 5px 0;"><strong>Distance:</strong> {distance_km} km from your location</p>
                 <p style="margin: 5px 0;"><strong>Pickup:</strong> {pickup_address}</p>
             </div>
-            
             <p style="font-size: 14px; color: #777;">Open your rider app to view details and accept this delivery.</p>
-            
             <hr style="margin: 20px 0;">
             <p style="font-size: 12px; color: #999;">
                 You're receiving this because you're an active rider with email notifications enabled. 
@@ -157,11 +162,9 @@ class EmailService:
         </body>
         </html>
         """
-    
-    
+
     def custom_email_template(self, message: str, has_image: bool = False) -> str:
         image_placeholder = '<img src="cid:inline_image" style="max-width: 100%; margin: 20px 0;" alt="Attached Image">' if has_image else ''
-        
         return f"""
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
