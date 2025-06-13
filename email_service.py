@@ -37,10 +37,10 @@ class EmailService:
             email_id = str(uuid.uuid4())
             
             # Create a multipart/related message
-            message_container = MIMEMultipart('related')
-            message_container["Subject"] = subject
-            message_container["From"] = self.fastmail.config.MAIL_FROM
-            message_container["To"] = ", ".join(recipients)
+            message= MIMEMultipart('related')
+            message["Subject"] = subject
+            message["From"] = self.fastmail.config.MAIL_FROM
+            message["To"] = ", ".join(recipients)
             
             # Add HTML part
             html_part = MIMEText(body, "html")
