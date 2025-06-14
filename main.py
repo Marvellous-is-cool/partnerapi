@@ -660,8 +660,438 @@ async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_
         print(f"Error notifying nearby riders: {str(e)}")
 
 
-# ================= Delivery Endpoints =================
 
+# ================= Nearby Riders Endpoint =================
+
+@app.get("/deliveries/{delivery_id}/nearby-riders")
+async def get_nearby_riders_for_delivery(
+    delivery_id: str,
+    max_distance_km: Optional[float] = None,
+    include_rejected: bool = False
+):
+    """
+    Get nearby riders for a specific delivery using dynamic filtering.
+    Uses the delivery's pickup location and vehicle type to find suitable riders.
+    """
+    try:
+        # Get the delivery details
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Extract delivery information needed for matching
+        vehicle_type = delivery.get("vehicletype")
+        if not vehicle_type:
+            raise HTTPException(
+                status_code=400, 
+                detail="Delivery does not have a vehicle type specified"
+            )
+        
+        # Parse pickup location
+        startpoint = delivery.get("startpoint")
+        if isinstance(startpoint, str):
+            try:
+                startpoint_data = json.loads(startpoint)
+            except json.JSONDecodeError:
+                startpoint_data = {"address": startpoint, "latitude": None, "longitude": None}
+        else:
+            startpoint_data = startpoint or {}
+        
+        pickup_lat = startpoint_data.get("latitude")
+        pickup_lng = startpoint_data.get("longitude")
+        
+        if not pickup_lat or not pickup_lng:
+            raise HTTPException(
+                status_code=400,
+                detail="Delivery pickup location coordinates not available"
+            )
+        
+        # Use dynamic radius calculation if max_distance_km is not provided
+        if max_distance_km is None:
+            # Create delivery details dict for dynamic radius calculation
+            delivery_details = {
+                "deliveryspeed": delivery.get("deliveryspeed", "standard"),
+                "price": delivery.get("price", 0),
+                "packagesize": delivery.get("packagesize", "medium")
+            }
+            max_distance_km = calculate_dynamic_radius(delivery_details)
+        
+        # Find nearby riders using existing function
+        nearby_riders = find_nearby_riders(
+            pickup_lat, 
+            pickup_lng, 
+            vehicle_type, 
+            max_distance_km
+        )
+        
+        # Filter out riders who have rejected this delivery (unless explicitly requested)
+        if not include_rejected:
+            rejected_riders = delivery.get("rejected_riders", [])
+            nearby_riders = [
+                rider for rider in nearby_riders 
+                if rider["_id"] not in rejected_riders
+            ]
+        
+        # Check if delivery is already assigned
+        assigned_rider_id = delivery.get("rider_id")
+        
+        # Add additional information to each rider
+        enhanced_riders = []
+        for rider in nearby_riders:
+            rider_info = {
+                **rider,
+                "is_assigned_to_delivery": rider["_id"] == assigned_rider_id,
+                "has_rejected_delivery": rider["_id"] in delivery.get("rejected_riders", []),
+                "estimated_earnings": calculate_estimated_earnings({
+                    "price": delivery.get("price", 0)
+                }),
+                "urgency_level": get_urgency_level({
+                    "deliveryspeed": delivery.get("deliveryspeed", "standard"),
+                    "price": delivery.get("price", 0)
+                })
+            }
+            
+            # Add rating information if available
+            rider_ratings = get_rider_ratings(rider["_id"])
+            if rider_ratings:
+                avg_rating = sum(r.get("rating", 0) for r in rider_ratings) / len(rider_ratings)
+                rider_info["average_rating"] = round(avg_rating, 1)
+                rider_info["total_ratings"] = len(rider_ratings)
+            else:
+                rider_info["average_rating"] = 0
+                rider_info["total_ratings"] = 0
+            
+            enhanced_riders.append(rider_info)
+        
+        # Sort riders by multiple criteria:
+        # 1. Assigned rider first (if any)
+        # 2. Then by distance
+        # 3. Then by rating
+        enhanced_riders.sort(key=lambda x: (
+            not x["is_assigned_to_delivery"],  # Assigned rider first
+            x["distance_km"],  # Then by distance
+            -x["average_rating"]  # Then by rating (descending)
+        ))
+        
+        # Prepare delivery summary for context
+        delivery_summary = {
+            "delivery_id": delivery_id,
+            "vehicle_type": vehicle_type,
+            "pickup_address": startpoint_data.get("address", "Unknown location"),
+            "pickup_coordinates": {
+                "latitude": pickup_lat,
+                "longitude": pickup_lng
+            },
+            "delivery_status": delivery.get("status", {}).get("current", "unknown"),
+            "price": delivery.get("price", 0),
+            "delivery_speed": delivery.get("deliveryspeed", "standard"),
+            "package_size": delivery.get("packagesize", "medium"),
+            "distance": delivery.get("distance", "unknown"),
+            "assigned_rider_id": assigned_rider_id,
+            "rejected_riders_count": len(delivery.get("rejected_riders", [])),
+            "search_radius_km": round(max_distance_km, 1)
+        }
+        
+        return {
+            "status": "success",
+            "delivery": delivery_summary,
+            "nearby_riders": enhanced_riders,
+            "total_found": len(enhanced_riders),
+            "search_parameters": {
+                "vehicle_type": vehicle_type,
+                "max_distance_km": round(max_distance_km, 1),
+                "pickup_location": {
+                    "latitude": pickup_lat,
+                    "longitude": pickup_lng,
+                    "address": startpoint_data.get("address")
+                },
+                "include_rejected_riders": include_rejected,
+                "dynamic_radius_used": max_distance_km == calculate_dynamic_radius({
+                    "deliveryspeed": delivery.get("deliveryspeed", "standard"),
+                    "price": delivery.get("price", 0),
+                    "packagesize": delivery.get("packagesize", "medium")
+                })
+            }
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error getting nearby riders for delivery {delivery_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get nearby riders: {str(e)}"
+        )
+
+
+@app.get("/deliveries/{delivery_id}/top-rider")
+async def get_rider_recommendations_for_delivery(
+    delivery_id: str,
+    limit: int = 5
+):
+    """
+    Get top rider recommendations optimized for new delivery apps.
+    Focuses more on availability and distance when rating data is limited.
+    """
+    try:
+        # Get nearby riders using the main endpoint logic
+        nearby_riders_response = await get_nearby_riders_for_delivery(
+            delivery_id=delivery_id,
+            include_rejected=False
+        )
+        
+        if nearby_riders_response["total_found"] == 0:
+            return {
+                "status": "success",
+                "delivery_id": delivery_id,
+                "recommendations": [],
+                "message": "No suitable riders found for this delivery"
+            }
+        
+        riders = nearby_riders_response["nearby_riders"]
+        delivery_info = nearby_riders_response["delivery"]
+        
+        # Calculate recommendation score for each rider (optimized for new apps)
+        scored_riders = []
+        for rider in riders:
+            score = 0
+            score_breakdown = {}
+            
+            # Distance score (INCREASED WEIGHT - max 40 points for new apps)
+            distance_km = rider["distance_km"]
+            if distance_km <= 1:
+                distance_score = 40
+            elif distance_km <= 2:
+                distance_score = 35
+            elif distance_km <= 3:
+                distance_score = 30
+            elif distance_km <= 5:
+                distance_score = 25
+            elif distance_km <= 10:
+                distance_score = 20
+            else:
+                distance_score = 10
+            score += distance_score
+            score_breakdown["distance"] = distance_score
+            
+            # Online status and activity score (INCREASED WEIGHT - max 30 points)
+            if rider.get("is_online", False):
+                online_score = 30
+                # Check if rider was recently active
+                last_activity = rider.get("last_activity")
+                if last_activity:
+                    # Bonus for very recent activity (within last hour)
+                    time_diff = datetime.utcnow() - last_activity
+                    if time_diff.total_seconds() < 3600:  # 1 hour
+                        online_score += 5
+            else:
+                online_score = 0
+            score += online_score
+            score_breakdown["availability"] = online_score
+            
+            # Vehicle match score (max 20 points)
+            if rider.get("vehicle_type") == delivery_info["vehicle_type"]:
+                vehicle_score = 20
+            else:
+                vehicle_score = 0
+            score += vehicle_score
+            score_breakdown["vehicle_match"] = vehicle_score
+            
+            # Modified rating score for new apps (max 15 points)
+            avg_rating = rider.get("average_rating", 0)
+            total_ratings = rider.get("total_ratings", 0)
+            
+            if total_ratings >= 3:
+                # Use actual rating if rider has 3+ ratings
+                rating_score = (avg_rating / 5) * 15
+            elif total_ratings > 0:
+                # Partial score for 1-2 ratings (be generous)
+                rating_score = max(10, (avg_rating / 5) * 15)
+            else:
+                # Default score for new riders (neutral)
+                rating_score = 8
+            score += rating_score
+            score_breakdown["rating"] = round(rating_score, 1)
+            
+            # Registration age bonus (NEW - max 10 points)
+            # Reward riders who have been registered longer
+            date_joined = rider.get("date_joined")
+            if date_joined:
+                days_registered = (datetime.utcnow() - date_joined).days
+                if days_registered >= 30:
+                    age_score = 10
+                elif days_registered >= 14:
+                    age_score = 7
+                elif days_registered >= 7:
+                    age_score = 5
+                elif days_registered >= 3:
+                    age_score = 3
+                else:
+                    age_score = 1
+            else:
+                age_score = 1
+            score += age_score
+            score_breakdown["registration_age"] = age_score
+            
+            # Account completeness bonus (NEW - max 5 points)
+            completeness_score = 0
+            if rider.get("facial_picture_url"):
+                completeness_score += 2
+            if rider.get("vehicle_picture_url"):
+                completeness_score += 2
+            if rider.get("accountnumber") and rider.get("accountbank"):
+                completeness_score += 1
+            score += completeness_score
+            score_breakdown["profile_completeness"] = completeness_score
+            
+            # Already rejected penalty (keep this)
+            if rider.get("has_rejected_delivery", False):
+                score -= 15
+                score_breakdown["rejection_penalty"] = -15
+            
+            # Add score information to rider
+            rider["recommendation_score"] = round(score, 1)
+            rider["score_breakdown"] = score_breakdown
+            rider["recommendation_rank"] = None
+            
+            scored_riders.append(rider)
+        
+        # Sort by recommendation score (highest first)
+        scored_riders.sort(key=lambda x: x["recommendation_score"], reverse=True)
+        
+        # Add rank and limit results
+        top_riders = []
+        for i, rider in enumerate(scored_riders[:limit]):
+            rider["recommendation_rank"] = i + 1
+            top_riders.append(rider)
+        
+        return {
+            "status": "success",
+            "delivery_id": delivery_id,
+            "delivery_info": delivery_info,
+            "recommendations": top_riders,
+            "total_candidates": len(scored_riders),
+            "showing_top": len(top_riders),
+            "scoring_criteria": {
+                "distance": "Max 40 points (optimized for new apps)",
+                "availability": "Max 30 points (online status + recent activity)",
+                "vehicle_match": "Max 20 points (exact match required)",
+                "rating": "Max 15 points (generous for new riders)",
+                "registration_age": "Max 10 points (days since signup)",
+                "profile_completeness": "Max 5 points (photos, bank details)",
+                "rejection_penalty": "-15 points if previously rejected"
+            },
+            "app_optimization": "Scoring optimized for apps with limited delivery history"
+        }
+        
+    except Exception as e:
+        print(f"Error getting rider recommendations for delivery {delivery_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get rider recommendations: {str(e)}"
+        )
+
+
+@app.get("/deliveries/{delivery_id}/rider-stats")
+async def get_delivery_rider_statistics(delivery_id: str):
+    """
+    Get statistical information about riders in relation to a specific delivery.
+    """
+    try:
+        # Get nearby riders data
+        nearby_riders_response = await get_nearby_riders_for_delivery(
+            delivery_id=delivery_id,
+            include_rejected=True  # Include all riders for complete stats
+        )
+        
+        if nearby_riders_response["total_found"] == 0:
+            return {
+                "status": "success",
+                "delivery_id": delivery_id,
+                "message": "No riders found for statistical analysis",
+                "statistics": {}
+            }
+        
+        riders = nearby_riders_response["nearby_riders"]
+        delivery_info = nearby_riders_response["delivery"]
+        
+        # Calculate statistics
+        total_riders = len(riders)
+        online_riders = len([r for r in riders if r.get("is_online", False)])
+        rejected_riders = len([r for r in riders if r.get("has_rejected_delivery", False)])
+        available_riders = total_riders - rejected_riders
+        
+        # Distance statistics
+        distances = [r["distance_km"] for r in riders]
+        avg_distance = sum(distances) / len(distances) if distances else 0
+        min_distance = min(distances) if distances else 0
+        max_distance = max(distances) if distances else 0
+        
+        # Rating statistics
+        rated_riders = [r for r in riders if r.get("total_ratings", 0) > 0]
+        if rated_riders:
+            ratings = [r["average_rating"] for r in rated_riders]
+            avg_rating = sum(ratings) / len(ratings)
+            min_rating = min(ratings)
+            max_rating = max(ratings)
+        else:
+            avg_rating = min_rating = max_rating = 0
+        
+        # Distance distribution
+        distance_ranges = {
+            "0-2km": len([r for r in riders if r["distance_km"] <= 2]),
+            "2-5km": len([r for r in riders if 2 < r["distance_km"] <= 5]),
+            "5-10km": len([r for r in riders if 5 < r["distance_km"] <= 10]),
+            "10km+": len([r for r in riders if r["distance_km"] > 10])
+        }
+        
+        statistics = {
+            "total_riders_in_area": total_riders,
+            "online_riders": online_riders,
+            "offline_riders": total_riders - online_riders,
+            "available_riders": available_riders,
+            "rejected_riders": rejected_riders,
+            "assigned_rider": delivery_info.get("assigned_rider_id") is not None,
+            "distance_stats": {
+                "average_distance_km": round(avg_distance, 2),
+                "min_distance_km": round(min_distance, 2),
+                "max_distance_km": round(max_distance, 2),
+                "search_radius_km": delivery_info["search_radius_km"]
+            },
+            "rating_stats": {
+                "riders_with_ratings": len(rated_riders),
+                "riders_without_ratings": total_riders - len(rated_riders),
+                "average_rating": round(avg_rating, 1),
+                "min_rating": round(min_rating, 1),
+                "max_rating": round(max_rating, 1)
+            },
+            "distance_distribution": distance_ranges,
+            "delivery_details": {
+                "vehicle_type": delivery_info["vehicle_type"],
+                "delivery_speed": delivery_info["delivery_speed"],
+                "price": delivery_info["price"],
+                "status": delivery_info["delivery_status"]
+            }
+        }
+        
+        return {
+            "status": "success",
+            "delivery_id": delivery_id,
+            "statistics": statistics,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error getting rider statistics for delivery {delivery_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get rider statistics: {str(e)}"
+        )
+
+
+
+
+# ================= Delivery Endpoints =================
 
 # get all online riders
 @app.get("/riders/online")
