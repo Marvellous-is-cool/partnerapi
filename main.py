@@ -283,10 +283,10 @@ async def rider_signup(
     Endpoint to handle rider signup with required details and multiple file uploads.
     """
     # Validate vehicle type
-    if vehicle_type.lower() not in ["bike", "car", "bus/truck"]:
+    if vehicle_type.lower() not in ["bike", "car", "bus", "truck"]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid vehicle type. Must be 'bike', 'car', or 'bus/truck'."
+            detail="Invalid vehicle type. Must be 'bike', 'car', 'bus' or 'truck'."
         )
 
     # Hash the password using SHA-256
@@ -2726,16 +2726,16 @@ async def create_car_delivery(request: CarDeliveryRequest, background_tasks: Bac
         "delivery_id": delivery_id
     }
 
-@app.post("/delivery/bus-truck")
-async def create_car_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
+@app.post("/delivery/bus")
+async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Endpoint to create a new car delivery request.
     """
     # Validate vehicle type
-    if request.vehicletype.lower() not in ["bus", "truck"]:
+    if request.vehicletype.lower() not in "bus":
         raise HTTPException(
             status_code=400,
-            detail="Invalid vehicle type. Must be 'bus' or 'truck."
+            detail="Invalid vehicle type. Must be 'bus'"
         )
     
     # Validate transaction type
@@ -2858,7 +2858,144 @@ async def create_car_delivery(request: CarDeliveryRequest, background_tasks: Bac
     
     return {
         "status": "success",
-        "message": "Bus / Truck delivery created successfully!",
+        "message": "Bus delivery created successfully!",
+        "delivery_id": delivery_id
+    }
+
+
+@app.post("/delivery/truck")
+async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
+    """
+    Endpoint to create a new car delivery request.
+    """
+    # Validate vehicle type
+    if request.vehicletype.lower() not in "truck":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type. Must be 'truck."
+        )
+    
+    # Validate transaction type
+    if request.transactiontype.lower() not in ["cash", "online"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid transaction type. Choose 'cash' or 'online'."
+        )
+    
+    # Fix delivery speed validation
+    if request.deliveryspeed.lower() not in ["express", "standard"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid delivery speed. Choose 'express' or 'standard'."
+        )
+        
+    # Parse location data
+    startpoint_data = parse_location_string(request.startpoint)
+    endpoint_data = parse_location_string(request.endpoint)
+    
+    # Prepare the delivery data
+    delivery_data = {
+        "user_id": request.user_id,
+        "price": request.price,
+        "distance": request.distance,
+        "startpoint": request.startpoint,
+        "endpoint": request.endpoint,
+        "stops": request.stops,
+        "vehicletype": request.vehicletype.lower(),
+        "transactiontype": request.transactiontype.lower(),
+        "deliveryspeed": request.deliveryspeed.lower(),
+        "status": request.status.dict(),
+        "transaction_info": {
+            "payment_status": "pending",
+            "payment_date": None,
+            "amount_paid": request.price,
+            "payment_reference": None,
+            "last_updated": datetime.utcnow()
+        }
+    }
+    
+    # Insert the delivery data into the database
+    delivery_id = insert_delivery(delivery_data)
+    
+    # Send notifications if delivery was created successfully
+    if delivery_id:
+        try:
+            # Get user info for notifications
+            user = get_user_by_id(request.user_id)
+            
+            if user:
+                # 1. PUSH NOTIFICATION TO USER
+                if user.get("push_notification", True):
+                    try:
+                        send_push_notification(
+                            user_id=request.user_id,
+                            message=f"Your {request.vehicletype.lower()} delivery has been created and riders are being notified",
+                            title="New Delivery Created",
+                            data={
+                                "type": "new_delivery",
+                                "delivery_id": delivery_id,
+                                "vehicle_type": request.vehicletype.lower(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error sending push notification to user: {str(e)}")
+                
+                # 2. NOTIFY AVAILABLE RIDERS (with matching vehicle type)
+                try:
+                    # Get all active riders with matching vehicle type
+                    matching_riders = list(riders_collection.find({
+                        "status": "active",
+                        "vehicle_type": request.vehicletype.lower(),
+                        "push_notification": True
+                    }))
+                    
+                    # Send push notification to each matching rider
+                    for rider in matching_riders:
+                        rider_id = str(rider["_id"])
+                        send_push_notification(
+                            user_id=rider_id,
+                            message=f"New {request.vehicletype.lower()} delivery available! Price: ${request.price} - Distance: {request.distance} km",
+                            title="New Delivery Available",
+                            data={
+                                "type": "new_delivery_opportunity",
+                                "delivery_id": delivery_id,
+                                "price": request.price,
+                                "vehicle_type": request.vehicletype.lower(),
+                                "distance": request.distance,
+                            }
+                        )
+                    print(f"Push notifications sent to {len(matching_riders)} riders")
+                        
+                except Exception as e:
+                    print(f"Error notifying riders: {str(e)}")
+                    
+
+                # 3. SEND EMAIL NOTIFICATION TO NEARBY RIDERS
+                try:
+                    # Check if we have location coordinates in parsed startpoint
+                    if (startpoint_data.get("latitude") and 
+                        startpoint_data.get("longitude")):
+                        
+                        # Send location-based email notifications to nearby riders
+                        await notify_nearby_riders(
+                            delivery_id,
+                            startpoint_data,  # Use parsed location data
+                            request.vehicletype.lower(),
+                            background_tasks
+                        )
+                        print(f"Location-based email notifications sent for delivery {delivery_id}")
+                    else:
+                        print(f"No location coordinates provided for delivery {delivery_id}")
+                        
+                except Exception as e:
+                    print(f"Error sending location-based email notifications: {str(e)}")
+                    
+        except Exception as e:
+            print(f"Error sending delivery notifications: {str(e)}")
+    
+    return {
+        "status": "success",
+        "message": "Truck delivery created successfully!",
         "delivery_id": delivery_id
     }
 
