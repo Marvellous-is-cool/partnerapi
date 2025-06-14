@@ -2590,7 +2590,6 @@ async def create_bike_delivery(request: BikeDeliveryRequest, background_tasks: B
         "delivery_id": delivery_id
     }
 
-
 @app.post("/delivery/car")
 async def create_car_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
     """
@@ -2732,7 +2731,7 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
     Endpoint to create a new car delivery request.
     """
     # Validate vehicle type
-    if request.vehicletype.lower() not in "bus":
+    if request.vehicletype.lower() != "bus":
         raise HTTPException(
             status_code=400,
             detail="Invalid vehicle type. Must be 'bus'"
@@ -2744,14 +2743,10 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
             status_code=400,
             detail="Invalid transaction type. Choose 'cash' or 'online'."
         )
-    
-    # Fix delivery speed validation
-    if request.deliveryspeed.lower() not in ["express", "standard"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid delivery speed. Choose 'express' or 'standard'."
-        )
         
+    # For bus deliveries, set delivery speed to "bus" (override client input)
+    delivery_speed = "bus"
+    
     # Parse location data
     startpoint_data = parse_location_string(request.startpoint)
     endpoint_data = parse_location_string(request.endpoint)
@@ -2766,7 +2761,7 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
-        "deliveryspeed": request.deliveryspeed.lower(),
+        "deliveryspeed": delivery_speed,
         "status": request.status.dict(),
         "transaction_info": {
             "payment_status": "pending",
@@ -2842,7 +2837,7 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
                         # Send location-based email notifications to nearby riders
                         await notify_nearby_riders(
                             delivery_id,
-                            startpoint_data,  # Use parsed location data
+                            startpoint_data,# Use parsed location data
                             request.vehicletype.lower(),
                             background_tasks
                         )
@@ -2869,7 +2864,7 @@ async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: B
     Endpoint to create a new car delivery request.
     """
     # Validate vehicle type
-    if request.vehicletype.lower() not in "truck":
+    if request.vehicletype.lower() != "truck":
         raise HTTPException(
             status_code=400,
             detail="Invalid vehicle type. Must be 'truck."
@@ -2881,13 +2876,10 @@ async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: B
             status_code=400,
             detail="Invalid transaction type. Choose 'cash' or 'online'."
         )
-    
-    # Fix delivery speed validation
-    if request.deliveryspeed.lower() not in ["express", "standard"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid delivery speed. Choose 'express' or 'standard'."
-        )
+        
+        
+    # For truck deliveries, set delivery speed to "truck" (override client input)
+    delivery_speed = "truck"
         
     # Parse location data
     startpoint_data = parse_location_string(request.startpoint)
@@ -2903,7 +2895,7 @@ async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: B
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
-        "deliveryspeed": request.deliveryspeed.lower(),
+        "deliveryspeed": delivery_speed,
         "status": request.status.dict(),
         "transaction_info": {
             "payment_status": "pending",
