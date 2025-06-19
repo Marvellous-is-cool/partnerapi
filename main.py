@@ -79,6 +79,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 
 import os
+from geocoding import GoogleMapsService, get_coordinates
 import json
 import hashlib
 import string
@@ -598,17 +599,16 @@ def calculate_estimated_earnings(delivery_details: dict) -> float:
     return round(base_price * 0.7, 2)
 
 
-
 async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_type: str, background_tasks: BackgroundTasks):
     """
     Notify nearby riders about a new delivery request.
     """
     try:
-        pickup_lat = pickup_location.get("latitude")
-        pickup_lng = pickup_location.get("longitude")
+        # Use the geocoding service to get coordinates
+        pickup_lat, pickup_lng = get_coordinates(pickup_location)
         
         if not pickup_lat or not pickup_lng:
-            print("Pickup location coordinates not provided")
+            print("Pickup location coordinates not provided and geocoding failed")
             return
         
         # Use dynamic radius calculation
@@ -663,6 +663,33 @@ async def notify_nearby_riders(delivery_id: str, pickup_location: dict, vehicle_
 
 # ================= Nearby Riders Endpoint =================
 
+@app.get("/debug/geocode")
+async def debug_geocode(address: str):
+    """Test endpoint for geocoding addresses"""
+    try:
+        lat, lng = get_coordinates(address)
+        if lat and lng:
+            return {
+                "status": "success",
+                "address": address,
+                "coordinates": {
+                    "latitude": lat,
+                    "longitude": lng
+                }
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Could not geocode the address",
+                "address": address
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error during geocoding: {str(e)}",
+            "address": address
+        }
+
 @app.get("/deliveries/{delivery_id}/nearby-riders")
 async def get_nearby_riders_for_delivery(
     delivery_id: str,
@@ -689,22 +716,43 @@ async def get_nearby_riders_for_delivery(
         
         # Parse pickup location
         startpoint = delivery.get("startpoint")
+        
+        # Get coordinates using geocoding service
+        pickup_lat, pickup_lng = get_coordinates(startpoint)
+        
+        if not pickup_lat or not pickup_lng:
+            # Check if there's rider_location data available
+            if delivery.get("rider_location") and "latitude" in delivery["rider_location"]:
+                pickup_lat = delivery["rider_location"]["latitude"]
+                pickup_lng = delivery["rider_location"]["longitude"]
+                print(f"Using rider location coordinates: {pickup_lat}, {pickup_lng}")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not determine delivery pickup coordinates"
+                )
+        
+        # Create structured startpoint_data with the coordinates we've found
         if isinstance(startpoint, str):
             try:
                 startpoint_data = json.loads(startpoint)
+                # Update with our coordinates if needed
+                if not startpoint_data.get("latitude") or not startpoint_data.get("longitude"):
+                    startpoint_data["latitude"] = pickup_lat
+                    startpoint_data["longitude"] = pickup_lng
             except json.JSONDecodeError:
-                startpoint_data = {"address": startpoint, "latitude": None, "longitude": None}
+                # Create a new object with address and coordinates
+                startpoint_data = {
+                    "address": startpoint, 
+                    "latitude": pickup_lat,
+                    "longitude": pickup_lng
+                }
         else:
+            # If it's already a dict, use it but ensure it has our coordinates
             startpoint_data = startpoint or {}
-        
-        pickup_lat = startpoint_data.get("latitude")
-        pickup_lng = startpoint_data.get("longitude")
-        
-        if not pickup_lat or not pickup_lng:
-            raise HTTPException(
-                status_code=400,
-                detail="Delivery pickup location coordinates not available"
-            )
+            if not startpoint_data.get("latitude") or not startpoint_data.get("longitude"):
+                startpoint_data["latitude"] = pickup_lat
+                startpoint_data["longitude"] = pickup_lng
         
         # Use dynamic radius calculation if max_distance_km is not provided
         if max_distance_km is None:
@@ -3055,8 +3103,8 @@ async def create_car_delivery(request: CarDeliveryRequest, background_tasks: Bac
         "user_id": request.user_id,
         "price": request.price,
         "distance": request.distance,
-        "startpoint": request.startpoint,
-        "endpoint": request.endpoint,
+        "startpoint": startpoint_data,
+        "endpoint": endpoint_data,
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
@@ -3186,8 +3234,8 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
         "user_id": request.user_id,
         "price": request.price,
         "distance": request.distance,
-        "startpoint": request.startpoint,
-        "endpoint": request.endpoint,
+        "startpoint": startpoint_data,
+        "endpoint": endpoint_data,
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
@@ -3320,8 +3368,8 @@ async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: B
         "user_id": request.user_id,
         "price": request.price,
         "distance": request.distance,
-        "startpoint": request.startpoint,
-        "endpoint": request.endpoint,
+        "startpoint": startpoint_data,
+        "endpoint": endpoint_data,
         "stops": request.stops,
         "vehicletype": request.vehicletype.lower(),
         "transactiontype": request.transactiontype.lower(),
