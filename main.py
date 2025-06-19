@@ -399,47 +399,159 @@ async def rider_signin(
 # update rider online status
 @app.put("/riders/{rider_id}/online-status")
 async def update_rider_online_status(
-    rider_id: str,  
-    data: dict
+    rider_id: str,
+    data: dict = Body(...)
 ):
     """
-    Endpoint to update rider's online status.
+    Update a rider's online status.
+    Expects a JSON body with "is_online" field.
+    """
+    try:
+        # Validate input
+        is_online = data.get("is_online")
+        if is_online is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required field: is_online"
+            )
+        
+        # Check if rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(
+                status_code=404,
+                detail="Rider not found"
+            )
+        
+        # Update appropriate timestamps based on status change
+        update_data = {
+            "is_online": is_online,
+            "last_activity": datetime.utcnow()
+        }
+        
+        if is_online:
+            update_data["last_online"] = datetime.utcnow()
+        else:
+            update_data["last_offline"] = datetime.utcnow()
+        
+        success = update_rider_details_db(rider_id, update_data)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update rider's online status"
+            )
+        
+        status_text = "activated" if is_online else "deactivated"
+        return {
+            "status": "success",
+            "message": f"Rider's online status {status_text} successfully",
+            "rider_id": rider_id,
+            "is_online": is_online,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error updating rider online status: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+# @app.put("/riders/{rider_id}/online-status")
+# async def update_rider_online_status(
+#     rider_id: str,  
+#     data: dict = Body(...)
+# ):
+#     """
+#     Endpoint to update rider's online status.
+#     """
+    
+#     # Extract online status from the request body.
+#     online = data.get("online", False)
+    
+#     # Get the rider first
+#     rider = get_rider_by_id(rider_id)
+    
+#     if not rider:
+#         raise HTTPException(status_code=404, detail="Rider not found")
+    
+#     # Verify rider account is active
+#     if rider.get("status") != "active":
+#         raise HTTPException(status_code=403, detail="Rider account is not active, can't update status")
+    
+#     # prepare update data
+#     update_online_data = {
+#         "is_online": online,
+#         "last_online": datetime.now() if online else None,
+#         "last_offline": datetime.now() if not online else None,
+#         "last_activity": datetime.now()
+#     }
+    
+#     # Update rider online status in database
+#     success = update_rider_details_db(rider_id, update_online_data)
+    
+#     if not success:
+#         raise HTTPException(status_code=500, detail="Failed to update rider online status")
+    
+#     return {
+#         "status": "success",
+#         "message": f"Rider is now {'online' if online else 'offline'}",
+#         "rider_id": rider_id,
+#         "online": online
+#     }
+
+@app.put("/riders/{rider_id}/deactivate-online")
+async def deactivate_rider_online_status(
+    rider_id: str,
+):
+    """
+    Endpoint to deactivate a rider's online status.
+    This will set is_online to False and update last_offline timestamp.
     """
     
-    # Extract online status from the request body.
-    online = data.get("online", False)
-    
-    # Get the rider first
-    rider = get_rider_by_id(rider_id)
-    
-    if not rider:
-        raise HTTPException(status_code=404, detail="Rider not found")
-    
-    # Verify rider account is active
-    if rider.get("status") != "active":
-        raise HTTPException(status_code=403, detail="Rider account is not active, can't update status")
-    
-    # prepare update data
-    update_online_data = {
-        "is_online": online,
-        "last_online": datetime.now() if online else None,
-        "last_offline": datetime.now() if not online else None,
-        "last_activity": datetime.now()
-    }
-    
-    # Update rider online status in database
-    success = update_rider_details_db(rider_id, update_online_data)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update rider online status")
-    
-    return {
-        "status": "success",
-        "message": f"Rider is now {'online' if online else 'offline'}",
-        "rider_id": rider_id,
-        "online": online
-    }
-
+    try:
+        # Get the rider first
+        rider = get_rider_by_id(rider_id)
+        
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        # Verify rider account is active
+        if rider.get("status") != "active":
+            raise HTTPException(
+                status_code=403, 
+                detail="Account is not active. Rider is not available for delivery"
+            )
+        
+        # Prepare update data
+        update_data = {
+            "is_online": False,
+            "last_offline": datetime.now(),
+            "last_activity": datetime.now()
+        }
+        
+        # Update rider online status in database
+        success = update_rider_details_db(rider_id, update_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update rider online status")
+        
+        return {
+            "status": "success",
+            "message": "Rider is now offline",
+            "rider_id": rider_id,
+            "timestamp": datetime.now().isoformat()
+        }
+            
+    except HTTPException as e: 
+        raise e
+    except Exception as e:
+        print(f"Error deactivating rider {rider_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to deactivate rider: {str(e)}")
+   
 # check rider online status
 @app.get("/riders/{rider_id}/online-status")
 async def check_rider_online_status(
@@ -470,6 +582,120 @@ async def check_rider_online_status(
         "last_activity": rider.get("last_activity"),
         "current_location": rider.get("current_location")
     }
+
+@app.get("/riders/{rider_id}/details")
+async def get_rider_details(rider_id: str):
+    """
+    Get comprehensive details about a rider including metrics, earnings, and delivery history.
+    """
+    try:
+        # Get rider information
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+            
+        # Convert ObjectId to string for serialization
+        rider_id_str = str(rider["_id"])
+        rider["_id"] = rider_id_str
+            
+        # Get all deliveries for this rider
+        rider_deliveries = list(delivery_collection.find({"rider_id": rider_id_str}))
+        
+        # Calculate delivery metrics
+        total_deliveries = len(rider_deliveries)
+        completed_deliveries = len([d for d in rider_deliveries if d.get("status", {}).get("current") == "completed"])
+        canceled_deliveries = len([d for d in rider_deliveries if d.get("status", {}).get("current") == "cancelled"])
+        rejected_deliveries = len([d for d in rider_deliveries if d.get("status", {}).get("current") == "rejected"])
+        ongoing_deliveries = len([d for d in rider_deliveries if d.get("status", {}).get("current") in ["ongoing", "inprogress"]])
+        
+        # Calculate earnings
+        total_earnings = rider.get("earnings", 0)
+        # If earnings are not tracked in rider object, calculate from deliveries
+        if total_earnings == 0:
+            total_earnings = sum([d.get("price", 0) * 0.7 for d in rider_deliveries if d.get("status", {}).get("current") == "completed"])
+        
+        # Get rating information
+        ratings = get_rider_ratings(rider_id_str)
+        average_rating = 0
+        if ratings:
+            average_rating = sum(r.get("rating", 0) for r in ratings) / len(ratings)
+        
+        # Time analytics
+        current_time = datetime.utcnow()
+        
+        # Calculate days active
+        days_active = 0
+        if rider.get("date_joined"):
+            date_joined = rider["date_joined"] if isinstance(rider["date_joined"], datetime) else datetime.fromisoformat(rider["date_joined"].replace('Z', '+00:00'))
+            days_active = (current_time - date_joined).days
+        
+        # Format recent deliveries for display
+        recent_deliveries = sorted(
+            rider_deliveries, 
+            key=lambda x: x.get("last_updated", datetime.min) if isinstance(x.get("last_updated"), datetime) else datetime.min, 
+            reverse=True
+        )[:5]
+        
+        formatted_deliveries = []
+        for delivery in recent_deliveries:
+            formatted_deliveries.append({
+                "delivery_id": str(delivery.get("_id")),
+                "price": delivery.get("price", 0),
+                "status": delivery.get("status", {}).get("current", "unknown"),
+                "date": delivery.get("last_updated").isoformat() if isinstance(delivery.get("last_updated"), datetime) else delivery.get("last_updated"),
+                "pickup": delivery.get("startpoint", {}).get("address", "Unknown location") if isinstance(delivery.get("startpoint"), dict) else delivery.get("startpoint", "Unknown"),
+                "destination": delivery.get("endpoint", {}).get("address", "Unknown location") if isinstance(delivery.get("endpoint"), dict) else delivery.get("endpoint", "Unknown"),
+                "vehicle_type": delivery.get("vehicletype", "unknown")
+            })
+        
+        return {
+            "status": "success",
+            "rider": {
+                "id": rider_id_str,
+                "firstname": rider.get("firstname", ""),
+                "lastname": rider.get("lastname", ""),
+                "fullname": f"{rider.get('firstname', '')} {rider.get('lastname', '')}",
+                "email": rider.get("email", ""),
+                "phone": rider.get("phone", ""),
+                "account_status": rider.get("status", ""),
+                "vehicle_type": rider.get("vehicle_type", ""),
+                "date_joined": rider.get("date_joined").isoformat() if isinstance(rider.get("date_joined"), datetime) else rider.get("date_joined", ""),
+                "is_online": rider.get("is_online", False),
+                "last_activity": rider.get("last_activity").isoformat() if isinstance(rider.get("last_activity"), datetime) else rider.get("last_activity", "")
+            },
+            "metrics": {
+                "total_deliveries": total_deliveries,
+                "completed_deliveries": completed_deliveries,
+                "canceled_deliveries": canceled_deliveries,
+                "rejected_deliveries": rejected_deliveries,
+                "ongoing_deliveries": ongoing_deliveries,
+                "pending_deliveries": total_deliveries - (completed_deliveries + canceled_deliveries + rejected_deliveries + ongoing_deliveries),
+                "completion_rate": round(completed_deliveries / total_deliveries * 100, 1) if total_deliveries > 0 else 0,
+                "cancellation_rate": round(canceled_deliveries / total_deliveries * 100, 1) if total_deliveries > 0 else 0,
+                "total_earnings": round(total_earnings, 2),
+                "days_active": days_active,
+                "average_earnings_per_delivery": round(total_earnings / completed_deliveries, 2) if completed_deliveries > 0 else 0,
+                "average_deliveries_per_day": round(total_deliveries / max(days_active, 1), 1)
+            },
+            "ratings": {
+                "average_rating": round(average_rating, 1),
+                "total_ratings": len(ratings),
+                "5_star_ratings": len([r for r in ratings if r.get("rating", 0) == 5]),
+                "4_star_ratings": len([r for r in ratings if r.get("rating", 0) == 4]),
+                "3_star_ratings": len([r for r in ratings if r.get("rating", 0) == 3]),
+                "2_star_ratings": len([r for r in ratings if r.get("rating", 0) == 2]),
+                "1_star_ratings": len([r for r in ratings if r.get("rating", 0) == 1])
+            },
+            "recent_deliveries": formatted_deliveries,
+            "location": rider.get("current_location", {}),
+            "generated_at": current_time.isoformat()
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error getting rider details: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get rider details: {str(e)}")
+
 
 def calculate_distance(lat1, lon1, lat2, lon2):
     """
@@ -1194,8 +1420,7 @@ async def get_all_online_riders(
         "count": len(online_riders),
         "riders": online_riders
     }
-
-
+     
 # WebSocket endpoint 
 @app.websocket("/ws/rider/{rider_id}")
 async def websocket_endpoint(websocket: WebSocket, rider_id: str):
