@@ -22,6 +22,7 @@ from database import (
     get_admin_by_id,
     get_all_users,
     get_all_admins,
+    update_rider_location_db,
     update_rider_status,
     update_rider_details_db,
     update_admin_role,
@@ -2223,124 +2224,6 @@ async def update_delivery_transaction(
             detail=f"Failed to update transaction information: {str(e)}"
         )
 
-@app.put("/delivery/{delivery_id}/rider-location")
-async def update_rider_location(
-    delivery_id: str,
-    rider_id: str = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    eta_minutes: Optional[int] = Form(None)
-):
-    """
-    Endpoint to update rider's current location and ETA for a delivery.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Verify rider exists and is assigned to this delivery
-        if delivery.get("rider_id") != rider_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Only the assigned rider can update location for this delivery"
-            )
-        
-        # Check if delivery is in a valid state for location updates
-        current_status = delivery.get("status", {}).get("current")
-        if current_status not in ["ongoing", "inprogress"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Location can only be updated for ongoing or in-progress deliveries"
-            )
-        
-        # Prepare location update data
-        location_data = {
-            "rider_location": {
-                "rider_id": rider_id,
-                "latitude": latitude,
-                "longitude": longitude,
-                "last_updated": datetime.utcnow()
-            }
-        }
-        
-        # Add ETA if provided
-        if eta_minutes is not None:
-            location_data["rider_location"]["eta_minutes"] = eta_minutes
-            location_data["rider_location"]["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
-        
-        # Update the delivery in database
-        success = update_delivery(delivery_id, location_data)
-        
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update rider location"
-            )
-        
-        return {
-            "status": "success",
-            "message": "Rider location updated successfully",
-            "delivery_id": delivery_id,
-            "updated_data": location_data
-        }
-    
-    except Exception as e:
-        print(f"Error updating rider location: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update rider location: {str(e)}"
-        )
-
-@app.get("/deliveries/{delivery_id}/rider-location")
-async def get_delivery_location(delivery_id: str):
-    """
-    Endpoint to get delivery's current location and ETA for a delivery.
-    """
-    try:
-        # Verify delivery exists
-        delivery = get_delivery_by_id(delivery_id)
-        if not delivery:
-            raise HTTPException(status_code=404, detail="Delivery not found")
-        
-        # Check if delivery is in a valid state for location updates
-        current_status = delivery.get("status", {}).get("current")
-        if current_status not in ["ongoing", "inprogress"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Location can only be retrieved for ongoing or in-progress deliveries"
-            )
-        
-        # Get rider location from delivery data
-        rider_location = delivery.get("rider_location")
-        if not rider_location:
-            raise HTTPException(
-                status_code=404,
-                detail="No location data available for this delivery"
-            )
-            
-        
-        return {
-            "status": "success",
-            "delivery_id": delivery_id,
-            "rider_id": rider_location.get("rider_id"),
-            "location_data": {
-                "latitude": rider_location.get("latitude"),
-                "longitude": rider_location.get("longitude"),
-                "last_updated": rider_location.get("last_updated"),
-                "eta_minutes": rider_location.get("eta_minutes"),
-                "eta_time": rider_location.get("eta_time")
-            }
-        }
-    
-    except Exception as e:
-        print(f"Error getting rider location: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get rider location: {str(e)}"
-        )
-
 @app.get("/riders/{rider_id}/available-deliveries")
 async def get_available_deliveries_for_rider(
     rider_id: str,
@@ -2451,28 +2334,50 @@ async def update_rider_location(
     rider_id: str,
     latitude: float = Form(...),
     longitude: float = Form(...),
-    address: Optional[str] = Form(None)
+    eta_minutes: Optional[int] = Form(None)
 ):
-    """Update rider's current location and check for nearby deliveries"""
+    """
+    Update rider's current location with ETA and check for nearby deliveries.
+    Combines functionality of both location update endpoints.
+    """
     try:
+        # Verify rider exists
         rider = get_rider_by_id(rider_id)
         if not rider:
             raise HTTPException(status_code=404, detail="Rider not found")
         
-        location_data = {
-            "current_location": {
-                "latitude": latitude,
-                "longitude": longitude,
-                "address": address,
-                "last_updated": datetime.utcnow()
-            },
-            "last_activity": datetime.utcnow()
+        # Prepare standard location data for riders_collection
+        current_location = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "last_updated": datetime.utcnow()
         }
         
-        success = update_rider_details_db(rider_id, location_data)
+        # Add ETA if provided
+        if eta_minutes is not None:
+            current_location["eta_minutes"] = eta_minutes
+            current_location["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
+        
+        # Use the centralized update_rider_location_db function to update both collections
+        success = update_rider_location_db(rider_id, latitude, longitude, eta_minutes)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update location")
+        
+        # LEGACY SUPPORT: Also update rider_location field for backwards compatibility
+        # This can be removed once all clients are updated to use current_location
+        rider_location_data = {
+            "rider_location": {
+                "rider_id": rider_id,
+                "latitude": latitude,
+                "longitude": longitude,
+                "last_updated": datetime.utcnow()
+            }
+        }
+        
+        if eta_minutes is not None:
+            rider_location_data["rider_location"]["eta_minutes"] = eta_minutes
+            rider_location_data["rider_location"]["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
         
         # Check for nearby pending deliveries
         available_deliveries = []
@@ -2495,10 +2400,16 @@ async def update_rider_location(
                     delivery["distance_km"] = round(distance, 2)
                     available_deliveries.append(delivery)
         
+        # Sort by distance
+        available_deliveries.sort(key=lambda x: x["distance_km"])
+        
         return {
             "status": "success",
-            "message": "Location updated successfully",
-            "location": location_data["current_location"],
+            "message": "Rider location updated successfully",
+            "rider_id": rider_id,
+            "location": current_location,
+            "eta_minutes": eta_minutes,
+            "eta_time": current_location.get("eta_time"),
             "nearby_deliveries": len(available_deliveries),
             "available_deliveries": available_deliveries[:3]  # Show top 3
         }
@@ -2506,6 +2417,63 @@ async def update_rider_location(
     except Exception as e:
         print(f"Error updating rider location: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update location: {str(e)}")
+
+@app.get("/riders/{rider_id}/location")
+async def get_rider_location(rider_id: str):
+    """
+    Get a rider's current location information.
+    Returns location coordinates, timestamp and ETA if available.
+    """
+    try:
+        # Verify rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        
+        # Get rider's current location
+        location_data = rider.get("current_location")
+        if not location_data:
+            raise HTTPException(
+                status_code=404,
+                detail="No location data available for this rider"
+            )
+            
+        # Check if rider is currently assigned to an active delivery
+        active_delivery = None
+        active_deliveries = list(delivery_collection.find({
+            "rider_id": rider_id,
+            "status.current": {"$in": ["ongoing", "inprogress"]}
+        }))
+        if active_deliveries:
+            active_delivery = {
+                "delivery_id": str(active_deliveries[0]["_id"]),
+                "status": active_deliveries[0].get("status", {}).get("current"),
+                "pickup": active_deliveries[0].get("startpoint", {}).get("address", "Unknown"),
+                "destination": active_deliveries[0].get("endpoint", {}).get("address", "Unknown"),
+            }
+            
+            
+        return {
+            "status": "success",
+            "is_online": rider.get("is_online", False),
+            "location": {
+                "latitude": location_data.get("latitude"),
+                "longitude": location_data.get("longitude"),
+                "last_updated": location_data.get("last_updated"),
+                "eta_minutes": location_data.get("eta_minutes"),
+                "eta_time": location_data.get("eta_time")
+            },
+            "active_delivery": active_delivery
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error getting rider location: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get rider location: {str(e)}"
+        )
 
 @app.put("/riders/{rider_id}/update")
 async def update_rider_details(

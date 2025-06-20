@@ -311,6 +311,18 @@ def update_delivery(delivery_id, update_data):
         print(f"Error in update_delivery: {str(e)}")  
         return False
 
+def update_rider_location_db(rider_id, latitude, longitude):
+    """Standard function to update rider location"""
+    update_data = {
+        "current_location": {
+            "latitude": latitude,
+            "longitude": longitude,
+            "last_updated": datetime.utcnow()
+        },
+        "last_activity": datetime.utcnow()
+    }
+    return update_rider_details_db(rider_id, update_data)
+
 
 def get_file_by_id(file_id):
     """
