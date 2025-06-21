@@ -1,5 +1,6 @@
+import asyncio
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Body, Query, WebSocket, WebSocketDisconnect
-from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
+from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, ScheduledDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from firebase_admin import messaging, credentials
 import base64
 from database import (
@@ -110,6 +111,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyQuery
 from fastapi import Security
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.date import DateTrigger
+import pytz
+
+# Initialize scheduler
+scheduler = BackgroundScheduler()
+scheduler.start()
+
 
 api_key_query = APIKeyQuery(name="admin_key", auto_error=True)
 ADMIN_DELETE_KEY = os.getenv("ADMIN_DELETE_KEY")
@@ -231,6 +241,32 @@ def read_root():
 #         print(f"Failed to initialize Firebase Admin SDK: {e}")
 #         app = None
 
+
+@app.on_event("startup")
+async def load_scheduled_deliveries():
+    """
+    Load all pending scheduled deliveries into the scheduler at startup.
+    This ensures deliveries are still processed if the server restarts.
+    """
+    try:
+        # Query for scheduled deliveries that haven't been processed yet
+        query = {
+            "is_scheduled": True,
+            "scheduled_status": "pending",
+            "scheduled_datetime": {"$gt": datetime.utcnow()}
+        }
+        
+        scheduled_deliveries = list(delivery_collection.find(query))
+        for delivery in scheduled_deliveries:
+            delivery_id = str(delivery["_id"])
+            scheduled_datetime = delivery["scheduled_datetime"]
+            
+            # Add to scheduler
+            add_scheduled_delivery_to_queue(delivery_id, scheduled_datetime)
+            
+        print(f"Loaded {len(scheduled_deliveries)} pending scheduled deliveries")
+    except Exception as e:
+        print(f"Error loading scheduled deliveries: {str(e)}")
 
 
 @app.get("/ping")
@@ -1665,6 +1701,474 @@ def fetch_all_deliveries():
 
     return {"status": "success", "deliveries": sorted_deliveries}
 
+
+# =================== Deliveries Schedule Functions & Endpoint ==================
+
+def add_scheduled_delivery_to_queue(delivery_id: str, scheduled_datetime: datetime):
+    """
+    Add a delivery to the scheduler queue to be processed at the scheduled time.
+    """
+    scheduler.add_job(
+        process_scheduled_delivery,
+        trigger=DateTrigger(run_date=scheduled_datetime, timezone=pytz.UTC),
+        args=[delivery_id],
+        id=f"delivery_{delivery_id}",
+        replace_existing=True
+    )
+    print(f"Scheduled delivery {delivery_id} for {scheduled_datetime}")
+
+def process_scheduled_delivery(delivery_id: str):
+    """
+    Process a scheduled delivery when its time arrives.
+    """
+    try:
+        # Get delivery details
+        delivery = get_delivery_by_id(delivery_id)
+        
+        if not delivery:
+            print(f"Error: Scheduled delivery {delivery_id} not found")
+            return
+            
+        if delivery.get("status", {}).get("current") != "pending":
+            print(f"Skipping delivery {delivery_id}: Not in pending status")
+            return
+            
+        # Update delivery status to indicate it's being processed
+        update_data = {
+            "scheduled_status": "processing",
+            "last_updated": datetime.utcnow()
+        }
+        
+        update_delivery(delivery_id, update_data)
+        
+        # Find nearby riders for this delivery
+        vehicle_type = delivery.get("vehicletype", "bike")
+        pickup_location = delivery.get("startpoint", {})
+        
+        # Notify nearby riders about the delivery
+        background_tasks = BackgroundTasks()
+        asyncio.run(
+            notify_nearby_riders(
+                delivery_id=delivery_id,
+                pickup_location=pickup_location,
+                vehicle_type=vehicle_type,
+                background_tasks=background_tasks
+            )
+        )
+        
+        # Mark as processed
+        update_data = {
+            "scheduled_status": "processed",
+            "last_updated": datetime.utcnow()
+        }
+        update_delivery(delivery_id, update_data)
+        
+        print(f"Successfully processed scheduled delivery {delivery_id}")
+        
+    except Exception as e:
+        print(f"Error processing scheduled delivery {delivery_id}: {str(e)}")
+        # Mark as failed
+        try:
+            update_data = {
+                "scheduled_status": "failed",
+                "last_updated": datetime.utcnow()
+            }
+            update_delivery(delivery_id, update_data)
+        except:
+            pass
+
+# schedule delivery
+@app.post("/delivery/schedule")
+async def schedule_delivery(
+    request: ScheduledDeliveryRequest, 
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Schedule a delivery for a future date and time.
+    The delivery will be processed when the scheduled time arrives.
+    """
+    try:
+        # Extract request data
+        delivery_data = request.dict()
+        
+        # Convert to datetime object
+        scheduled_datetime = datetime.combine(
+            request.scheduled_date, 
+            request.scheduled_time
+        )
+        
+        # Check if the scheduled time is in the future
+        if scheduled_datetime <= datetime.utcnow():
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled time must be in the future"
+            )
+        
+        # Process locations (handle both string and dict formats)
+        if 'scheduled_date' in delivery_data:
+            del delivery_data['scheduled_date']
+        if 'scheduled_time' in delivery_data:
+            del delivery_data['scheduled_time']
+        
+        # Add scheduled delivery specific fields
+        delivery_data.update({
+            "scheduled_datetime": scheduled_datetime,
+            "scheduled_date_str": request.scheduled_date.isoformat(),  # Store as string
+            "scheduled_time_str": request.scheduled_time.isoformat(),  # Store as string
+            "scheduled_status": "pending", 
+            "created_at": datetime.utcnow(),
+            "is_scheduled": True
+        })
+        
+        # Insert delivery into database
+        delivery_id = insert_delivery(delivery_data)
+        
+        if not delivery_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create scheduled delivery"
+            )
+            
+        # Add to schedule processor
+        add_scheduled_delivery_to_queue(delivery_id, scheduled_datetime)
+        
+        return {
+            "status": "success",
+            "message": "Delivery scheduled successfully",
+            "delivery_id": delivery_id,
+            "scheduled_for": scheduled_datetime.isoformat()
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error scheduling delivery: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to schedule delivery: {str(e)}"
+        )
+
+# get scheduled delivery with filters
+@app.get("/deliveries/scheduled")
+async def get_scheduled_deliveries(
+    status: Optional[str] = None,
+):
+    """
+    Get a list of scheduled deliveries. Can filter by status.
+    Valid status values: pending, processing, processed, failed, cancelled
+    """
+    try:
+        # Build query
+        query = {"is_scheduled": True}
+        if status:
+            query["scheduled_status"] = status
+        
+        # Get scheduled deliveries
+        scheduled_deliveries = list(delivery_collection.find(query))
+        
+        # Format response
+        for delivery in scheduled_deliveries:
+            delivery["_id"] = str(delivery["_id"])
+            if "scheduled_datetime" in delivery and isinstance(delivery["scheduled_datetime"], datetime):
+                delivery["scheduled_datetime"] = delivery["scheduled_datetime"].isoformat()
+        
+        return {
+            "status": "success",
+            "count": len(scheduled_deliveries),
+            "scheduled_deliveries": scheduled_deliveries
+        }
+        
+    except Exception as e:
+        print(f"Error getting scheduled deliveries: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get scheduled deliveries: {str(e)}"
+        )
+
+# endpoint to cancel a scheduled delivery
+@app.put("/delivery/{delivery_id}/cancel-scheduled")
+async def cancel_scheduled_delivery(
+    delivery_id: str,
+    user_id: str = Form(...),
+):
+    """
+    Cancel a scheduled delivery by moving it to archived_deliveries collection.
+    Only the user who created the delivery or an admin can cancel it.
+    """
+    try:
+        # Get the delivery
+        delivery = get_delivery_by_id(delivery_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="Delivery not found")
+        
+        # Check if it's actually a scheduled delivery
+        if not delivery.get("is_scheduled", False):
+            raise HTTPException(status_code=400, detail="This is not a scheduled delivery")
+            
+        # Check ownership
+        if delivery.get("user_id") != user_id:
+            # Optional: Add admin check here if needed
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to cancel this delivery"
+            )
+            
+        # Check if it can be cancelled (not already processed)
+        if delivery.get("scheduled_status") in ["processed"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot cancel a delivery that has already been processed"
+            )
+            
+        # 1. Remove from scheduler if it's still there
+        try:
+            scheduler.remove_job(f"delivery_{delivery_id}")
+            print(f"Removed delivery {delivery_id} from scheduler")
+        except Exception as e:
+            # Job might already have been removed or executed
+            print(f"Could not remove job from scheduler: {str(e)}")
+            
+        # 2. Move to archived_deliveries collection
+        success = archive_delivery(delivery_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to cancel scheduled delivery"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Scheduled delivery cancelled successfully and archived",
+            "delivery_id": delivery_id
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error cancelling scheduled delivery: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to cancel scheduled delivery: {str(e)}"
+        )
+
+
+# ===================== Offline Deliveries Endpoint ====================
+
+
+@app.post("/deliveries/offline")
+async def create_offline_delivery(
+    user_id: str = Form(...),
+    rider_id: str = Form(...),
+    price: float = Form(...),
+    distance: str = Form(...),
+    startpoint: str = Form(...),
+    endpoint: str = Form(...),
+    vehicle_type: str = Form(...),
+    transaction_type: str = Form(...),
+    package_size: str = Form(...),
+    delivery_speed: str = Form(...),
+    completion_date: str = Form(...),  # Format: YYYY-MM-DD HH:MM
+    payment_status: str = Form(...),  # "paid" or "pending"
+    payment_reference: Optional[str] = Form(None),
+):
+    """
+    Endpoint for administrators to record deliveries that occurred offline.
+    Requires admin authentication.
+    """
+    try:
+        # Verify user exists
+        user = get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Verify rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+            
+        # Parse completion date
+        try:
+            completion_datetime = datetime.strptime(completion_date, "%Y-%m-%d %H:%M")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD HH:MM")
+            
+        # Process location data
+        for location_field in [startpoint, endpoint]:
+            if isinstance(location_field, str):
+                try:
+                    # Try parsing as JSON
+                    json.loads(location_field)
+                except json.JSONDecodeError:
+                    # It's a plain text address, geocode it
+                    lat, lng = get_coordinates(location_field)
+                    if lat and lng:
+                        location_field = {
+                            "address": location_field,
+                            "latitude": lat,
+                            "longitude": lng
+                        }
+                    else:
+                        location_field = {"address": location_field}
+        
+        # Build complete offline delivery record
+        delivery_data = {
+            "user_id": user_id,
+            "rider_id": rider_id,
+            "price": price,
+            "distance": distance,
+            "startpoint": startpoint,
+            "endpoint": endpoint,
+            "vehicletype": vehicle_type,
+            "transactiontype": transaction_type,
+            "packagesize": package_size,
+            "deliveryspeed": delivery_speed,
+            "stops": [],
+            "status": {
+                "current": "completed",
+                "timestamp": completion_datetime
+            },
+            "transaction_info": {
+                "payment_status": payment_status,
+                "payment_reference": payment_reference,
+                "payment_date": completion_datetime if payment_status == "paid" else None,
+                "amount_paid": price if payment_status == "paid" else 0,
+                "last_updated": datetime.utcnow()
+            },
+            "created_at": datetime.utcnow(),
+            "last_updated": datetime.utcnow(),
+            "is_offline_record": True,
+            "completion_date": completion_datetime
+        }
+        
+        # Insert into database
+        delivery_id = insert_delivery(delivery_data)
+        
+        if not delivery_id:
+            raise HTTPException(status_code=500, detail="Failed to create offline delivery record")
+            
+        return {
+            "status": "success",
+            "message": "Offline delivery recorded successfully",
+            "delivery_id": delivery_id
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error creating offline delivery: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create offline delivery: {str(e)}"
+        )
+
+
+@app.get("/deliveries/offline")
+async def get_offline_deliveries(
+    user_id: Optional[str] = None,
+    rider_id: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    payment_status: Optional[str] = None
+):
+    """
+    Retrieve all offline delivery records with optional filters.
+    """
+    try:
+        # Build base query for offline deliveries
+        query = {"is_offline_record": True}
+        
+        # Add optional filters if provided
+        if user_id:
+            query["user_id"] = user_id
+        
+        if rider_id:
+            query["rider_id"] = rider_id
+            
+        if payment_status:
+            query["transaction_info.payment_status"] = payment_status
+            
+        # Date range filtering
+        date_filter = {}
+        if from_date:
+            try:
+                from_datetime = datetime.strptime(from_date, "%Y-%m-%d")
+                date_filter["$gte"] = from_datetime
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid from_date format. Use YYYY-MM-DD")
+                
+        if to_date:
+            try:
+                # Set time to end of day for inclusive filtering
+                to_datetime = datetime.strptime(to_date, "%Y-%m-%d")
+                to_datetime = to_datetime.replace(hour=23, minute=59, second=59)
+                date_filter["$lte"] = to_datetime
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid to_date format. Use YYYY-MM-DD")
+                
+        if date_filter:
+            query["completion_date"] = date_filter
+        
+        # Get offline deliveries
+        offline_deliveries = list(delivery_collection.find(query))
+        
+        if not offline_deliveries:
+            return {
+                "status": "success",
+                "message": "No offline deliveries found",
+                "deliveries": []
+            }
+            
+        # Format for response
+        for delivery in offline_deliveries:
+            delivery["_id"] = str(delivery["_id"])
+            
+            # Format datetime objects
+            for key, value in delivery.items():
+                if isinstance(value, datetime):
+                    delivery[key] = value.isoformat()
+                
+            # Format nested datetime objects
+            if "status" in delivery and "timestamp" in delivery["status"]:
+                if isinstance(delivery["status"]["timestamp"], datetime):
+                    delivery["status"]["timestamp"] = delivery["status"]["timestamp"].isoformat()
+                    
+            if "transaction_info" in delivery:
+                if "payment_date" in delivery["transaction_info"] and isinstance(delivery["transaction_info"]["payment_date"], datetime):
+                    delivery["transaction_info"]["payment_date"] = delivery["transaction_info"]["payment_date"].isoformat()
+                if "last_updated" in delivery["transaction_info"] and isinstance(delivery["transaction_info"]["last_updated"], datetime):
+                    delivery["transaction_info"]["last_updated"] = delivery["transaction_info"]["last_updated"].isoformat()
+                    
+        # Sort deliveries by timestamp in descending order (latest first)
+        sorted_deliveries = sorted(
+            offline_deliveries,
+            key=lambda d: (
+                d.get("completion_date", "")
+                or d.get("status", {}).get("timestamp", "")
+                or d.get("last_updated", "")
+                or d.get("created_at", "")
+                or ""
+            ),
+            reverse=True
+        )
+        
+        return {
+            "status": "success",
+            "count": len(sorted_deliveries),
+            "deliveries": sorted_deliveries
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error fetching offline deliveries: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve offline deliveries: {str(e)}"
+        )
+
+# ====================== Deliveries Archive Endpoints ======================
+
 #  endpoint to view archived deliveries
 @app.get("/deliveries/archived")
 async def get_archived_deliveries_endpoint(
@@ -1846,9 +2350,9 @@ async def permanent_delete_all_deliveries(
         "status": "success", 
         "message": f"All {'archived ' if from_archive else ''}deliveries permanently deleted. Total: {deleted_count}"
     }
+   
     
-    
-    
+
 # validate deliveries
 def validate_delivery_status(delivery: dict, action: str):
     """"
