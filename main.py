@@ -1704,6 +1704,32 @@ def fetch_all_deliveries():
 
 # =================== Deliveries Schedule Functions & Endpoint ==================
 
+async def send_scheduled_delivery_notifications(user_id: str, delivery_id: str, message: str, email_subject: str, email_body: str):
+    """Helper function to send notifications for scheduled deliveries"""
+    user = get_user_by_id(user_id)
+    if not user:
+        return
+        
+    # Send email if enabled
+    if user.get("email") and user.get("email_notification", True):
+        await email_service.send_email(
+            subject=email_subject,
+            recipients=[user["email"]],
+            body=email_body
+        )
+    
+    # Send push notification if enabled
+    if user.get("push_notification", True):
+        send_push_notification(
+            user_id=user_id,
+            message=message,
+            title=email_subject,
+            data={
+                "type": "scheduled_delivery_update",
+                "delivery_id": delivery_id
+            }
+        )
+
 def add_scheduled_delivery_to_queue(delivery_id: str, scheduled_datetime: datetime):
     """
     Add a delivery to the scheduler queue to be processed at the scheduled time.
@@ -1740,6 +1766,64 @@ def process_scheduled_delivery(delivery_id: str):
         }
         
         update_delivery(delivery_id, update_data)
+        
+        # Get user for notifications
+        user_id = delivery.get("user_id")
+        user = get_user_by_id(user_id) if user_id else None
+        
+        if user:
+            # Send notifications that delivery is now being processed
+            background_tasks = BackgroundTasks()
+            
+            # Format data for notifications
+            pickup_address = delivery.get("startpoint", {}).get("address", "Unknown location")
+            
+            # SEND EMAIL NOTIFICATION
+            if user.get("email") and user.get("email_notification", True):
+                try:
+                    email_body = f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+                        <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <h2 style="color: #333;">Your Scheduled Delivery is Now Being Processed</h2>
+                        <p style="font-size: 16px; color: #555;">We're now processing your scheduled delivery and finding a rider for you.</p>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                            <p style="margin: 5px 0;"><strong>Delivery ID:</strong> {delivery_id}</p>
+                            <p style="margin: 5px 0;"><strong>Pickup:</strong> {pickup_address}</p>
+                        </div>
+                        <p style="font-size: 14px; color: #777;">You'll be notified once a rider accepts your delivery.</p>
+                        <hr style="margin: 20px 0;">
+                        <p style="font-size: 12px; color: #999;">
+                            Thank you for using Mico Delivery services.
+                        </p>
+                        </div>
+                    </body>
+                    </html>
+                    """
+                    
+                    # Use asyncio to run this synchronously in the background task
+                    asyncio.create_task(email_service.send_email(
+                        subject="Your Scheduled Delivery is Being Processed",
+                        recipients=[user["email"]],
+                        body=email_body
+                    ))
+                except Exception as e:
+                    print(f"Error sending processing email notification: {str(e)}")
+            
+            # SEND PUSH NOTIFICATION
+            if user.get("push_notification", True):
+                try:
+                    send_push_notification(
+                        user_id=user_id,
+                        message="Your scheduled delivery is now being processed. We're finding a rider for you.",
+                        title="Scheduled Delivery Processing",
+                        data={
+                            "type": "scheduled_delivery_processing",
+                            "delivery_id": delivery_id
+                        }
+                    )
+                except Exception as e:
+                    print(f"Error sending push notification: {str(e)}")
         
         # Find nearby riders for this delivery
         vehicle_type = delivery.get("vehicletype", "bike")
@@ -1804,11 +1888,16 @@ async def schedule_delivery(
                 detail="Scheduled time must be in the future"
             )
         
-        # Process locations (handle both string and dict formats)
-        if 'scheduled_date' in delivery_data:
-            del delivery_data['scheduled_date']
-        if 'scheduled_time' in delivery_data:
-            del delivery_data['scheduled_time']
+         # Process locations (handle both string and dict formats)
+        for location_field in ['startpoint', 'endpoint']:
+            if isinstance(delivery_data[location_field], str):
+                try:
+                    # Try parsing as JSON
+                    location_dict = json.loads(delivery_data[location_field])
+                    delivery_data[location_field] = location_dict
+                except json.JSONDecodeError:
+                    # It's a plain text address
+                    delivery_data[location_field] = {"address": delivery_data[location_field]}
         
         # Add scheduled delivery specific fields
         delivery_data.update({
@@ -1819,6 +1908,12 @@ async def schedule_delivery(
             "created_at": datetime.utcnow(),
             "is_scheduled": True
         })
+        
+        # Remove date and time objects that MongoDB can't serialize
+        if 'scheduled_date' in delivery_data:
+            del delivery_data['scheduled_date']
+        if 'scheduled_time' in delivery_data:
+            del delivery_data['scheduled_time']
         
         # Insert delivery into database
         delivery_id = insert_delivery(delivery_data)
@@ -1832,13 +1927,62 @@ async def schedule_delivery(
         # Add to schedule processor
         add_scheduled_delivery_to_queue(delivery_id, scheduled_datetime)
         
+        # Get user for notifications
+        user = get_user_by_id(request.user_id)
+        if user:
+            # Format the delivery time in a user-friendly way
+            formatted_time = scheduled_datetime.strftime("%A, %B %d at %I:%M %p")
+            
+            # SEND EMAIL NOTIFICATION
+            if user.get("email") and user.get("email_notification", True):
+                background_tasks.add_task(
+                    email_service.send_email,
+                    subject="Delivery Scheduled Successfully",
+                    recipients=[user["email"]],
+                    body=f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+                        <div style="max-width: 600px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <h2 style="color: #333;">Delivery Scheduled Successfully</h2>
+                        <p style="font-size: 16px; color: #555;">Your delivery has been scheduled for <strong>{formatted_time}</strong>.</p>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                            <p style="margin: 5px 0;"><strong>From:</strong> {delivery_data['startpoint'].get('address')}</p>
+                            <p style="margin: 5px 0;"><strong>To:</strong> {delivery_data['endpoint'].get('address')}</p>
+                            <p style="margin: 5px 0;"><strong>Scheduled for:</strong> {formatted_time}</p>
+                        </div>
+                        <p style="font-size: 14px; color: #777;">We'll notify you when your delivery is being processed.</p>
+                        <hr style="margin: 20px 0;">
+                        <p style="font-size: 12px; color: #999;">
+                            Thank you for using Mico Delivery services.
+                        </p>
+                        </div>
+                    </body>
+                    </html>
+                    """
+                )
+            
+            # SEND PUSH NOTIFICATION
+            if user.get("push_notification", True):
+                try:
+                    send_push_notification(
+                        user_id=request.user_id,
+                        message=f"Your delivery has been scheduled for {formatted_time}",
+                        title="Delivery Scheduled Successfully",
+                        data={
+                            "type": "scheduled_delivery_created",
+                            "delivery_id": delivery_id,
+                            "scheduled_time": scheduled_datetime.isoformat()
+                        }
+                    )
+                except Exception as e:
+                    print(f"Error sending push notification: {str(e)}")
+        
         return {
             "status": "success",
             "message": "Delivery scheduled successfully",
             "delivery_id": delivery_id,
             "scheduled_for": scheduled_datetime.isoformat()
-        }
-        
+        }        
     except HTTPException as e:
         raise e
     except Exception as e:
