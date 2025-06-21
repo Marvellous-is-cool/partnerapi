@@ -134,7 +134,6 @@ class ScheduledDeliveryRequest(BaseModel):
     scheduled_time: time
     notes: Optional[str] = None
     status: DeliveryStatus = DeliveryStatus()
-    
     class Config:
         json_schema_extra = {
             "example": {

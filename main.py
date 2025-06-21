@@ -1898,6 +1898,31 @@ async def schedule_delivery(
                 except json.JSONDecodeError:
                     # It's a plain text address
                     delivery_data[location_field] = {"address": delivery_data[location_field]}
+                    
+        if 'status' in delivery_data:
+            status_data = delivery_data['status']
+            # Convert simpler status structure to full structure if needed
+            if not isinstance(status_data, dict) or 'deliverystatus' not in status_data:
+                delivery_data['status'] = {
+                    "deliverystatus": "pending",
+                    "orderstatus": "pending",
+                    "riderid": None,
+                    "transactioninfo": {
+                        "status": "pending",
+                        "payment_method": None,
+                        "payment_id": None,
+                        "payment_date": None
+                    }
+                }
+        
+        # Add transaction_info to match regular delivery structure
+        delivery_data["transaction_info"] = {
+            "payment_status": "pending",
+            "payment_date": None,
+            "amount_paid": delivery_data["price"],
+            "payment_reference": None,
+            "last_updated": datetime.utcnow()
+        }
         
         # Add scheduled delivery specific fields
         delivery_data.update({
