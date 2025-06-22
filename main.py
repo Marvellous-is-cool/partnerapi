@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException,Body, Query, WebSocket, WebSocketDisconnect
-from schemas.delivery_schema import CreateDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, ScheduledDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
+from schemas.delivery_schema import CreateDeliveryRequest, OfflineDeliveryRequest, RiderSignup, BikeDeliveryRequest, CarDeliveryRequest, ScheduledDeliveryRequest, TransactionUpdateRequest, RiderLocationUpdate
 from firebase_admin import messaging, credentials
 import base64
 from database import (
@@ -2124,93 +2124,78 @@ async def cancel_scheduled_delivery(
 
 # ===================== Offline Deliveries Endpoint ====================
 
-
 @app.post("/deliveries/offline")
 async def create_offline_delivery(
-    user_id: str = Form(...),
-    rider_id: str = Form(...),
-    price: float = Form(...),
-    distance: str = Form(...),
-    startpoint: str = Form(...),
-    endpoint: str = Form(...),
-    vehicle_type: str = Form(...),
-    transaction_type: str = Form(...),
-    package_size: str = Form(...),
-    delivery_speed: str = Form(...),
-    completion_date: str = Form(...),  # Format: YYYY-MM-DD HH:MM
-    payment_status: str = Form(...),  # "paid" or "pending"
-    payment_reference: Optional[str] = Form(None),
+    request: OfflineDeliveryRequest
 ):
     """
     Endpoint for administrators to record deliveries that occurred offline.
-    Requires admin authentication.
+    Creates a record with the same structure as regular deliveries.
     """
     try:
         # Verify user exists
-        user = get_user_by_id(user_id)
+        user = get_user_by_id(request.user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
             
         # Verify rider exists
-        rider = get_rider_by_id(rider_id)
+        rider = get_rider_by_id(request.rider_id)
         if not rider:
             raise HTTPException(status_code=404, detail="Rider not found")
             
         # Parse completion date
         try:
-            completion_datetime = datetime.strptime(completion_date, "%Y-%m-%d %H:%M")
+            completion_datetime = datetime.strptime(request.completion_date, "%Y-%m-%d %H:%M")
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD HH:MM")
-            
-        # Process location data
-        for location_field in [startpoint, endpoint]:
-            if isinstance(location_field, str):
+        
+        # Extract request data
+        delivery_data = request.dict()
+        
+        # Process locations (handle both string and dict formats)
+        for location_field in ['startpoint', 'endpoint']:
+            if isinstance(delivery_data[location_field], str):
                 try:
                     # Try parsing as JSON
-                    json.loads(location_field)
+                    location_dict = json.loads(delivery_data[location_field])
+                    delivery_data[location_field] = location_dict
                 except json.JSONDecodeError:
                     # It's a plain text address, geocode it
-                    lat, lng = get_coordinates(location_field)
+                    lat, lng = get_coordinates(delivery_data[location_field])
                     if lat and lng:
-                        location_field = {
-                            "address": location_field,
+                        delivery_data[location_field] = {
+                            "address": delivery_data[location_field],
                             "latitude": lat,
                             "longitude": lng
                         }
                     else:
-                        location_field = {"address": location_field}
+                        delivery_data[location_field] = delivery_data[location_field]
         
-        # Build complete offline delivery record
-        delivery_data = {
-            "user_id": user_id,
-            "rider_id": rider_id,
-            "price": price,
-            "distance": distance,
-            "startpoint": startpoint,
-            "endpoint": endpoint,
-            "vehicletype": vehicle_type,
-            "transactiontype": transaction_type,
-            "packagesize": package_size,
-            "deliveryspeed": delivery_speed,
-            "stops": [],
+        # Use consistent field names with your regular deliveries
+        delivery_data["vehicletype"] = delivery_data.pop("vehicle_type")
+        delivery_data["transactiontype"] = delivery_data.pop("transaction_type")
+        delivery_data["packagesize"] = delivery_data.pop("package_size")
+        delivery_data["deliveryspeed"] = delivery_data.pop("delivery_speed")
+        
+        # Build complete delivery record structure matching your regular deliveries
+        delivery_data.update({
             "status": {
                 "current": "completed",
                 "timestamp": completion_datetime
             },
             "transaction_info": {
-                "payment_status": payment_status,
-                "payment_reference": payment_reference,
-                "payment_date": completion_datetime if payment_status == "paid" else None,
-                "amount_paid": price if payment_status == "paid" else 0,
+                "payment_status": request.payment_status,
+                "payment_date": completion_datetime if request.payment_status == "paid" else None,
+                "amount_paid": request.price if request.payment_status == "paid" else 0,
+                "payment_reference": request.payment_reference,
                 "last_updated": datetime.utcnow()
             },
-            "created_at": datetime.utcnow(),
+            "created_at": completion_datetime,
             "last_updated": datetime.utcnow(),
-            "is_offline_record": True,
-            "completion_date": completion_datetime
-        }
+            "is_offline_record": True  # Additional flag to identify offline records
+        })
         
-        # Insert into database
+        # Use MongoDB's automatic ObjectId generation exactly like regular deliveries
         delivery_id = insert_delivery(delivery_data)
         
         if not delivery_id:
@@ -2230,7 +2215,6 @@ async def create_offline_delivery(
             status_code=500, 
             detail=f"Failed to create offline delivery: {str(e)}"
         )
-
 
 @app.get("/deliveries/offline")
 async def get_offline_deliveries(
