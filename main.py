@@ -4644,6 +4644,7 @@ async def edit_delivery_details(
                     detail="Invalid JSON format for stops"
                 )
         
+        # the package size
         if packagesize:
             update_data["packagesize"] = packagesize
         
