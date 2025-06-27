@@ -3016,7 +3016,7 @@ async def update_rider_location(
             current_location["eta_time"] = datetime.utcnow() + timedelta(minutes=eta_minutes)
         
         # Use the centralized update_rider_location_db function to update both collections
-        success = update_rider_location_db(rider_id, latitude, longitude, eta_minutes)
+        success = update_rider_location_db(rider_id, latitude, longitude)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update location")
