@@ -3763,23 +3763,40 @@ async def check_user_email(user_type: str, email: str = Form(...)):
 
 def parse_location_string(location_str: str) -> dict:
     """
-    Parse location string to extract coordinates and address
-    Expected format: JSON string like '{"latitude": 6.5244, "longitude": 3.3792, "address": "Lagos, Nigeria"}'
+    Parse location string to extract coordinates and address.
+    Geocodes plain address strings to get coordinates.
     """
     try:
         if isinstance(location_str, str):
-            # Try to parse as JSON first
-            location_dict = json.loads(location_str)
-            return location_dict
+            try:
+                # Try to parse as JSON first
+                location_dict = json.loads(location_str)
+                return location_dict
+            except json.JSONDecodeError:
+                # It's a plain address, geocode it
+                lat, lng = get_coordinates(location_str)
+                return {
+                    "address": location_str,
+                    "latitude": lat,
+                    "longitude": lng
+                }
         elif isinstance(location_str, dict):
             # Already a dictionary
             return location_str
         else:
-            # Plain address string, no coordinates
-            return {"address": str(location_str), "latitude": None, "longitude": None}
-    except json.JSONDecodeError:
-        # If JSON parsing fails, treat as plain address
-        return {"address": location_str, "latitude": None, "longitude": None}
+            # Unknown type, convert to string
+            address_str = str(location_str)
+            lat, lng = get_coordinates(address_str)
+            return {
+                "address": address_str, 
+                "latitude": lat, 
+                "longitude": lng
+            }
+    except Exception as e:
+        print(f"Error parsing location: {str(e)}")
+        # Fallback - return with null coordinates
+        return {"address": str(location_str), "latitude": None, "longitude": None}
+
     
 @app.post("/delivery/bike")
 async def create_bike_delivery(request: BikeDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
@@ -4184,7 +4201,6 @@ async def create_bus_delivery(request: CarDeliveryRequest, background_tasks: Bac
         "message": "Bus delivery created successfully!",
         "delivery_id": delivery_id
     }
-
 
 @app.post("/delivery/truck")
 async def create_truck_delivery(request: CarDeliveryRequest, background_tasks: BackgroundTasks = BackgroundTasks()):
