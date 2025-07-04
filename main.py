@@ -2615,14 +2615,12 @@ async def update_delivery_status(
                     detail="Only the assigned rider can cancel this delivery"
                 )
                 
-            # Reset the delivery status
-            update_data = {
-                "rider_id": None,
-                "status": {
-                    "current": "cancelled",
-                    "timestamp": datetime.utcnow()
-                }
-            }
+            rejected_riders = delivery.get("rejected_riders", [])
+            if rider_id not in rejected_riders:
+                rejected_riders.append(rider_id)
+                update_data["rejected_riders"] = rejected_riders
+        
+        
         elif action == "complete":
             # Only the assigned rider can complete the delivery
             if delivery.get("rider_id") != rider_id:
