@@ -16,6 +16,7 @@ client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 riders_collection = db["riders"]
 users_collection = db["users"]
+noti_collection = db["noti"]
 admins_collection = db["admins"]
 delivery_collection = db['deliveries']
 chat_collection = db['chats']
@@ -735,3 +736,143 @@ def get_archived_deliveries():
     except Exception as e:
         print(f"Error in get_archived_deliveries: {str(e)}")
         return []    
+
+
+
+# ================= Notification Functions =================
+
+def insert_notification_user(user_id: str, external_user_id: str, user_type: str = "user") -> str:
+    """
+    Insert notification user data (user_id and external_user_id) into noti collection.
+    
+    Args:
+        user_id: The internal user/rider ID
+        external_user_id: The OneSignal external user ID (usually same as user_id)
+        user_type: "user" or "rider"
+    
+    Returns:
+        str: The inserted document ID
+    """
+    try:
+        # Check if user already exists
+        existing = noti_collection.find_one({"user_id": user_id})
+        
+        if existing:
+            # Update existing record
+            result = noti_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "external_user_id": external_user_id,
+                        "user_type": user_type,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            return str(existing["_id"])
+        else:
+            # Insert new record
+            noti_data = {
+                "user_id": user_id,
+                "external_user_id": external_user_id,
+                "user_type": user_type,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            }
+            result = noti_collection.insert_one(noti_data)
+            return str(result.inserted_id)
+            
+    except Exception as e:
+        print(f"Error inserting notification user: {e}")
+        return None
+
+def get_notification_user_by_id(user_id: str):
+    """
+    Get notification user data by user_id.
+    
+    Args:
+        user_id: The user or rider ID
+    
+    Returns:
+        dict: The notification user document or None if not found
+    """
+    try:
+        noti_user = noti_collection.find_one({"user_id": user_id})
+        if noti_user:
+            noti_user["_id"] = str(noti_user["_id"])
+            # Convert datetime objects to ISO format
+            if "created_at" in noti_user and isinstance(noti_user["created_at"], datetime):
+                noti_user["created_at"] = noti_user["created_at"].isoformat()
+            if "updated_at" in noti_user and isinstance(noti_user["updated_at"], datetime):
+                noti_user["updated_at"] = noti_user["updated_at"].isoformat()
+        return noti_user
+    except Exception as e:
+        print(f"Error getting notification user: {e}")
+        return None
+
+def get_all_notification_users():
+    """
+    Get all notification users from the noti collection.
+    
+    Returns:
+        list: List of all notification user documents
+    """
+    try:
+        noti_users = list(noti_collection.find())
+        
+        for noti_user in noti_users:
+            noti_user["_id"] = str(noti_user["_id"])
+            # Convert datetime objects to ISO format
+            if "created_at" in noti_user and isinstance(noti_user["created_at"], datetime):
+                noti_user["created_at"] = noti_user["created_at"].isoformat()
+            if "updated_at" in noti_user and isinstance(noti_user["updated_at"], datetime):
+                noti_user["updated_at"] = noti_user["updated_at"].isoformat()
+        
+        return noti_users
+    except Exception as e:
+        print(f"Error getting all notification users: {e}")
+        return []
+
+def delete_notification_user(user_id: str) -> bool:
+    """
+    Delete notification user by user_id.
+    
+    Args:
+        user_id: The user or rider ID
+    
+    Returns:
+        bool: True if deletion was successful, False otherwise
+    """
+    try:
+        result = noti_collection.delete_one({"user_id": user_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"Error deleting notification user: {e}")
+        return False
+
+def get_notification_users_by_type(user_type: str):
+    """
+    Get notification users by type (user or rider).
+    
+    Args:
+        user_type: "user" or "rider"
+    
+    Returns:
+        list: List of notification user documents of the specified type
+    """
+    try:
+        noti_users = list(noti_collection.find({"user_type": user_type}))
+        
+        for noti_user in noti_users:
+            noti_user["_id"] = str(noti_user["_id"])
+            # Convert datetime objects to ISO format
+            if "created_at" in noti_user and isinstance(noti_user["created_at"], datetime):
+                noti_user["created_at"] = noti_user["created_at"].isoformat()
+            if "updated_at" in noti_user and isinstance(noti_user["updated_at"], datetime):
+                noti_user["updated_at"] = noti_user["updated_at"].isoformat()
+        
+        return noti_users
+    except Exception as e:
+        print(f"Error getting notification users by type: {e}")
+        return []
+

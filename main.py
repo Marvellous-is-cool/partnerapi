@@ -54,7 +54,12 @@ from database import (
     restore_delivery,
     get_archived_deliveries,
     archived_deliveries_collection,
-    delivery_collection
+    delivery_collection,
+    insert_notification_user,
+    get_notification_user_by_id,
+    get_all_notification_users,
+    delete_notification_user,
+    get_notification_users_by_type,
 )
 import hashlib
 from fastapi import BackgroundTasks, Depends
@@ -5090,76 +5095,6 @@ async def update_user_profile_picture(
             detail=f"Failed to update profile picture: {str(e)}"
         )
 
-
-def send_push_notification(
-    user_id: str, 
-    message: str, 
-    title: str = "New Message", 
-    data: Optional[Dict[str, Any]] = None
-) -> bool:
-    """
-    Send push notification to a user or rider using Firebase Admin SDK.
-    
-    Args:
-        user_id: The ID of the user or rider to send notification to
-        message: The notification message
-        title: The notification title
-        data: Additional data to send with the notification
-        
-    Returns:
-        bool: True if notification was sent successfully, False otherwise
-    """
-    from database import get_user_by_id, get_rider_by_id
-    
-    # If Firebase Admin SDK is not initialized, just log and return
-    if app is None:
-        print(f"[PUSH] Firebase Admin SDK not initialized. Would send notification to {user_id}: {title} - {message}")
-        return False
-    
-    # Get the user or rider to check if they have push notifications enabled
-    # and to get their FCM token
-    user = get_user_by_id(user_id)
-    if not user:
-        user = get_rider_by_id(user_id)
-    
-    if not user:
-        print(f"[PUSH] User/Rider {user_id} not found")
-        return False
-    
-    # Check if user has push notifications enabled
-    if not user.get("push_notification", False):
-        print(f"[PUSH] User/Rider {user_id} has disabled push notifications")
-        return False
-    
-    # Get FCM token - you need to store this when the user logs in from a device
-    fcm_token = user.get("fcm_token")
-    if not fcm_token:
-        print(f"[PUSH] No FCM token found for user/rider {user_id}")
-        return False
-    
-    try:
-        # Create a message
-        message_payload = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=message,
-            ),
-            token=fcm_token,
-        )
-        
-        # Add data payload if provided
-        if data:
-            message_payload.data = data
-        
-        # Send the message
-        response = messaging.send(message_payload)
-        print(f"[PUSH] Successfully sent notification to {user_id}: {response}")
-        return True
-        
-    except Exception as e:
-        print(f"[PUSH] Error sending notification: {str(e)}")
-        return False
-
 @app.post("/test-notification")
 async def the_test_notification(
     receiver_id: str = Form(...),
@@ -5469,75 +5404,6 @@ async def send_custom_email(json_data: EmailWithAttachments):
         )
         
         
-
-def send_push_notification(
-    user_id: str, 
-    message: str, 
-    title: str = "New Message", 
-    data: Optional[Dict[str, Any]] = None
-) -> bool:
-    """
-    Send push notification to a user or rider using Firebase Admin SDK.
-    
-    Args:
-        user_id: The ID of the user or rider to send notification to
-        message: The notification message
-        title: The notification title
-        data: Additional data to send with the notification
-        
-    Returns:
-        bool: True if notification was sent successfully, False otherwise
-    """
-    
-    # If Firebase Admin SDK is not initialized, just log and return
-    if app is None:
-        print(f"[PUSH] Firebase Admin SDK not initialized. Would send notification to {user_id}: {title} - {message}")
-        return False
-    
-    # Get the user or rider to check if they have push notifications enabled
-    # and to get their FCM token
-    user = get_user_by_id(user_id)
-    if not user:
-        user = get_rider_by_id(user_id)
-    
-    if not user:
-        print(f"[PUSH] User/Rider {user_id} not found")
-        return False
-    
-    # Check if user has push notifications enabled
-    if not user.get("push_notification", False):
-        print(f"[PUSH] User/Rider {user_id} has disabled push notifications")
-        return False
-    
-    # Get FCM token - you need to store this when the user logs in from a device
-    fcm_token = user.get("fcm_token")
-    if not fcm_token:
-        print(f"[PUSH] No FCM token found for user/rider {user_id}")
-        return False
-    
-    try:
-        # Create a message
-        message_payload = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=message,
-            ),
-            token=fcm_token,
-        )
-        
-        # Add data payload if provided
-        if data:
-            message_payload.data = data
-        
-        # Send the message
-        response = messaging.send(message_payload)
-        print(f"[PUSH] Successfully sent notification to {user_id}: {response}")
-        return True
-        
-    except Exception as e:
-        print(f"[PUSH] Error sending notification: {str(e)}")
-        return False
-
 @app.post("/test-notification")
 async def test_notification(
     receiver_id: str = Form(...),
@@ -5604,4 +5470,202 @@ async def register_device(
     except Exception as e:
         return {"status": "error", "message": f"Error registering device: {str(e)}"}
         
-#
+@app.post("/update-player-id")
+async def update_player_id(
+    user_id: str = Form(...),
+    player_id: str = Form(...),
+    user_type: str = Form(...)  # "user" or "rider"
+):
+    """Update OneSignal player ID for push notifications"""
+    try:
+        if user_type.lower() == "rider":
+            result = update_user_details_db(user_id, {"player_id": player_id})
+        else:
+            result = update_rider_details_db(user_id, {"player_id": player_id})
+            
+        if result.modified_count > 0:
+            return {"status": "success", "message": "Player ID updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
+    
+# ================= Notification User Endpoints =================
+
+@app.post("/riders/{rider_id}/player-id")
+async def update_rider_player_id_flutter(
+    rider_id: str,
+    data: dict = Body(...)
+):
+    """
+    Flutter-compatible endpoint for updating rider player ID.
+    Stores in noti collection instead of direct rider update.
+    """
+    try:
+        # Get the external_user_id from the request body
+        external_user_id = data.get("external_user_id")
+        
+        if not external_user_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="external_user_id is required"
+            )
+        
+        # Verify rider exists
+        rider = get_rider_by_id(rider_id)
+        if not rider:
+            raise HTTPException(
+                status_code=404, 
+                detail="Rider not found"
+            )
+        
+        # Insert/update in noti collection
+        noti_id = insert_notification_user(rider_id, external_user_id, "rider")
+        
+        if noti_id:
+            return {
+                "status": "success", 
+                "message": "External user ID updated successfully",
+                "rider_id": rider_id,
+                "external_user_id": external_user_id,
+                "noti_id": noti_id
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to update rider player ID"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/users/{user_id}/player-id")
+async def update_user_player_id_flutter(
+    user_id: str,
+    data: dict = Body(...)
+):
+    """
+    Flutter-compatible endpoint for updating user player ID.
+    Stores in noti collection instead of direct user update.
+    """
+    try:
+        # Get the external_user_id from the request body
+        external_user_id = data.get("external_user_id")
+        
+        if not external_user_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="external_user_id is required"
+            )
+        
+        # Verify user exists
+        user = get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=404, 
+                detail="User not found"
+            )
+        
+        # Insert/update in noti collection
+        noti_id = insert_notification_user(user_id, external_user_id, "user")
+        
+        if noti_id:
+            return {
+                "status": "success", 
+                "message": "External user ID updated successfully",
+                "user_id": user_id,
+                "external_user_id": external_user_id,
+                "noti_id": noti_id
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to update user player ID"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Update the existing endpoints to also use noti collection
+@app.post("/update-player-id")
+async def update_player_id(
+    user_id: str = Form(...),
+    player_id: str = Form(...),
+    user_type: str = Form(...)  # "user" or "rider"
+):
+    """Update OneSignal player ID for push notifications using noti collection"""
+    try:
+        # Verify user/rider exists
+        if user_type.lower() == "rider":
+            user_exists = get_rider_by_id(user_id)
+        else:
+            user_exists = get_user_by_id(user_id)
+            
+        if not user_exists:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"{user_type.capitalize()} not found"
+            )
+        
+        # Store in noti collection (using player_id as external_user_id)
+        noti_id = insert_notification_user(user_id, player_id, user_type.lower())
+        
+        if noti_id:
+            return {
+                "status": "success", 
+                "message": "Player ID updated successfully",
+                "noti_id": noti_id
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to update player ID"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/register-device")
+async def register_device(
+    user_id: str = Form(...),
+    player_id: str = Form(...),
+    user_type: str = Form(...)  # "user" or "rider"
+):
+    """
+    Register or update a user's OneSignal player ID using noti collection
+    """
+    try:
+        # Verify user/rider exists
+        if user_type.lower() == "user":
+            user_exists = get_user_by_id(user_id)
+        elif user_type.lower() == "rider":
+            user_exists = get_rider_by_id(user_id)
+        else:
+            return {"status": "error", "message": "Invalid user type. Must be 'user' or 'rider'"}
+        
+        if not user_exists:
+            return {"status": "error", "message": f"{user_type.capitalize()} not found"}
+        
+        # Store in noti collection
+        noti_id = insert_notification_user(user_id, player_id, user_type.lower())
+        
+        if noti_id:
+            return {
+                "status": "success", 
+                "message": f"OneSignal player ID registered for {user_type}",
+                "noti_id": noti_id
+            }
+        else:
+            return {"status": "error", "message": f"Failed to register device for {user_type}"}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Error registering device: {str(e)}"}

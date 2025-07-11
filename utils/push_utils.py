@@ -33,9 +33,9 @@ def send_push_notification(
     Returns:
         Dict containing status and message
     """
-    from database import get_user_by_id, get_rider_by_id
+    from database import get_user_by_id, get_rider_by_id, get_notification_user_by_id
     
-    # Get the user or rider
+    # Get the user or rider to check if push notifications are enabled
     receiver = get_user_by_id(user_id) or get_rider_by_id(user_id)
     if not receiver:
         error_message = f"Receiver not found with ID: {user_id}"
@@ -48,8 +48,14 @@ def send_push_notification(
         logging.info(error_message)
         return {"status": "error", "message": error_message}
     
-    # Check if player_id (OneSignal device ID) exists
-    player_id = receiver.get("player_id")
+    # Get OneSignal device ID from noti collection
+    noti_user = get_notification_user_by_id(user_id)
+    if not noti_user:
+        error_message = f"No notification registration found for user/rider {user_id}"
+        logging.warning(error_message)
+        return {"status": "error", "message": error_message}
+    
+    player_id = noti_user.get("external_user_id")
     if not player_id:
         error_message = f"No OneSignal player ID found for user/rider {user_id}"
         logging.warning(error_message)
