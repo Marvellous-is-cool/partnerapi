@@ -385,7 +385,7 @@ async def rider_signup(
     # Update the facial_picture_url
     facial_pic_id = file_ids.get("facial_picture")
     if facial_pic_id:
-        facial_picture_url = f"https://deliveryapi-ten.vercel.app/files/{facial_pic_id}"
+        facial_picture_url = f"https://partnerapi-ten.vercel.app/files/{facial_pic_id}"
         update_rider_details_db(rider_id, {"facial_picture_url": facial_picture_url})
         rider_data["facial_picture_url"] = facial_picture_url
 
@@ -1505,7 +1505,7 @@ def fetch_rider_by_id(rider_id: str):
         # Add facial picture URL if file_ids exist
         if "file_ids" in rider and rider["file_ids"].get("recent_facial_picture"):
             facial_pic_id = rider["file_ids"]["recent_facial_picture"]
-            rider["facial_picture_url"] = f"https://deliveryapi-ten.vercel.app/files/{facial_pic_id}"
+            rider["facial_picture_url"] = f"https://partnerapi-ten.vercel.app/files/{facial_pic_id}"
         
         return {"status": "success", "rider": rider}
     else:
@@ -3260,7 +3260,7 @@ async def update_rider_facial_picture(
             file_id = save_file_to_gridfs(facial_picture_file, facial_picture.filename)
             if file_id:
                 file_updates["facial_picture"] = file_id
-                facial_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+                facial_picture_url = f"https://partnerapi-ten.vercel.app/files/{file_id}"
                 update_data["facial_picture_url"] = facial_picture_url
         
         if file_updates:
@@ -3461,7 +3461,7 @@ async def update_the_rider_vehicle_picture(
             )
         
         # Update the rider's profile with the picture URL and file ID
-        vehicle_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        vehicle_picture_url = f"https://partnerapi-ten.vercel.app/files/{file_id}"
         
         # Prepare update data
         update_data = {"vehicle_picture_url": vehicle_picture_url}
@@ -4391,7 +4391,7 @@ async def update_rider_vehicle_picture(
             )
         
         # Update the rider's profile with the picture URL and file ID
-        vehicle_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        vehicle_picture_url = f"https://partnerapi-ten.vercel.app/files/{file_id}"
         
         # Prepare update data
         update_data = {"vehicle_picture_url": vehicle_picture_url}
@@ -4454,7 +4454,7 @@ async def update_rider_vehicle_picture(
             )
         
         # Update the rider's profile with the picture URL and file ID
-        vehicle_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        vehicle_picture_url = f"https://partnerapi-ten.vercel.app/files/{file_id}"
         
         # Prepare update data
         update_data = {"vehicle_picture_url": vehicle_picture_url}
@@ -5069,7 +5069,7 @@ async def update_user_profile_picture(
             )
         
         # Update the user's profile with the picture URL
-        profile_picture_url = f"https://deliveryapi-ten.vercel.app/files/{file_id}"
+        profile_picture_url = f"https://partnerapi-ten.vercel.app/files/{file_id}"
         success = update_user_details_db(
             user_id, 
             {"profile_picture_url": profile_picture_url}
