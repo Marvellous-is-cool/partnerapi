@@ -320,6 +320,7 @@ async def rider_signup(
     license: UploadFile = File(...),
     email_notification: bool = Form(True),
     push_notification: bool = Form(True),
+    partner_code: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
@@ -364,6 +365,9 @@ async def rider_signup(
         "last_activity": datetime.now(),
         "current_location": None
     }
+    
+    if partner_code:
+        rider_data["partner_code"] = partner_code
 
     # Read the uploaded files
     nationalid_file = await nationalid.read()
@@ -404,7 +408,8 @@ async def rider_signup(
         "message": "Rider signed up successfully!",
         "rider_id": rider_id,
         "file_ids": file_ids,
-        "facial_picture_url": rider_data["facial_picture_url"]
+        "facial_picture_url": rider_data["facial_picture_url"],
+        "partner_code": partner_code if partner_code else None
     }
 
 
