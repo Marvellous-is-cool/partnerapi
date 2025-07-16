@@ -5169,9 +5169,9 @@ async def admin_signup(
     role: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    partner_code: Optional[str] = Form(None),
+    user_type: str = Form("main")
 ):
-    
-    
     """
     Endpoint to handle admin signup.
     """
@@ -5182,6 +5182,10 @@ async def admin_signup(
         raise HTTPException(
             status_code=400, detail="An admin already used this email or username."
         )
+        
+    # If user_type is partner, partner_code is required
+    if user_type == "partner" and not partner_code:
+        raise HTTPException(status_code=400, detail="partner_code is required for partner admins")
 
     # Hash the password using SHA-256
     hashed_password = hash_password_sha256(password)
@@ -5192,8 +5196,11 @@ async def admin_signup(
         "role": role,
         "email": email,
         "password": hashed_password,  
-        "date_joined": datetime.now()
+        "date_joined": datetime.now(),
+        "user_type": user_type,  # 'main' or 'sub'
     }
+    if partner_code:
+        admin_data["partner_code"] = partner_code
 
     # Insert admin into the database
     admin_id = insert_admin(admin_data)
@@ -5287,6 +5294,8 @@ async def update_admin_details(
     role: Optional[str] = None,
     email: Optional[str] = None,
     password: Optional[str] = None,
+    user_type: Optional[str] = None,
+    partner_code: Optional[str] = None
 ):
     """
     Endpoint to update admin's details.
@@ -5302,19 +5311,24 @@ async def update_admin_details(
     if username: update_data["username"] = username
     if role: update_data["role"] = role
     if email: update_data["email"] = email
-    if password:  # Only hash if password is provided
+    if password:
         hashed_password = hash_password_sha256(password)
         update_data["password"] = hashed_password
-    
+    if user_type:
+        update_data["type"] = user_type
+        # If changing to partner, partner_code is required
+        if user_type == "partner" and not partner_code and not admin.get("partner_code"):
+            raise HTTPException(status_code=400, detail="partner_code is required for partner admins")
+    if partner_code:
+        update_data["partner_code"] = partner_code
+
     if not update_data:
         raise HTTPException(status_code=400, detail="No data provided for update")
-    
-    # Update admin details
+
     success = update_admin_details_db(admin_id, update_data)
-    
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update admin details")
-    
+
     return {
         "status": "success",
         "message": "Admin details updated successfully",
